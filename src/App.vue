@@ -1,11 +1,14 @@
-<script setup lang="ts"></script>
+<script setup lang="ts">
+import Arena from "@/components/Arena.vue"
+import Player from "@/components/Player.vue"
+</script>
 
 <template>
-  <h1>You did it!</h1>
-  <p>
-    Visit <a href="https://vuejs.org/" target="_blank" rel="noopener">vuejs.org</a> to read the
-    documentation
-  </p>
+  <h1>Game loop</h1>
+  <p>There is literally a game loop running at 60 fps now.</p>
+  <Arena style="width: 100%; height: 100%; position: absolute; top: 0; left: 0">
+    <Player />
+  </Arena>
 </template>
 
 <style scoped></style>
