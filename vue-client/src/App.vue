@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import Arena from "@/components/Arena.vue"
+import Datagrams from "@/components/Datagrams.vue"
 import Player from "@/components/Player.vue"
 </script>
 
@@ -9,6 +10,7 @@ import Player from "@/components/Player.vue"
   <Arena style="width: 100%; height: 100%; position: absolute; top: 0; left: 0">
     <Player />
   </Arena>
+  <Datagrams />
 </template>
 
 <style scoped></style>
