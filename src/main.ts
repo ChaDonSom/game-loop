@@ -1,5 +1,6 @@
-import { createApp } from "vue"
+import { createApp, ref } from "vue"
 import App from "./App.vue"
+import { updateHooks } from "@/store/updateHooks.ts"
 
 createApp(App).mount("#app")
 
@@ -15,7 +16,7 @@ function gameLoop(currentTime: number) {
 
   // Run fixed updates as many times as needed to catch up
   while (lag >= MS_PER_UPDATE) {
-    updatePhysics(MS_PER_UPDATE / 1000) // Fixed deltaTime in seconds
+    update(MS_PER_UPDATE / 1000) // Fixed deltaTime in seconds
     lag -= MS_PER_UPDATE
   }
 
@@ -26,8 +27,9 @@ function gameLoop(currentTime: number) {
 }
 requestAnimationFrame(gameLoop)
 
-function updatePhysics(deltaTime: number) {
+function update(deltaTime: number) {
   // Update your physics or game logic here using the fixed deltaTime
+  updateHooks.value.forEach((hook) => hook(deltaTime))
 }
 
 function render(interpolation: number) {
