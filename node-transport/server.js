@@ -8,8 +8,8 @@ const PRIV_KEY_PATH = process.env.PRIV_KEY_PATH
 const server = new Http3Server({
   port: 4433,
   host: "0.0.0.0",
-  cert: readFileSync(CERT_PATH),
-  privKey: readFileSync(PRIV_KEY_PATH),
+  cert: process.env.CERT_PATH ? readFileSync(CERT_PATH) : undefined,
+  privKey: process.env.PRIV_KEY_PATH ? readFileSync(PRIV_KEY_PATH) : undefined,
 })
 
 server.startServer()

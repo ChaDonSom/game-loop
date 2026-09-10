@@ -2,6 +2,7 @@
   "name": "web-transport",
   "version": "1.0.0",
   "main": "server.js",
+  "type": "module",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
     "start": "node server.js"
@@ -16,6 +17,7 @@
   "description": "",
   "dependencies": {
     "@fails-components/webtransport": "^1.6.8",
+    "@fails-components/webtransport-transport-http3-quiche": "^1.6.8",
     "dotenv": "^17.4.2"
   }
 }
