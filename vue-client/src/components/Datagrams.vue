@@ -1,12 +1,14 @@
 <script setup lang="ts">
 import { ref, onMounted } from "vue"
 
+const transportUrl = import.meta.env.VITE_TRANSPORT_URL
+
 const count = ref(null)
 const status = ref("connecting")
 
 onMounted(async () => {
   try {
-    const transport = new WebTransport("https://web-transport.somero.dev:4433/count")
+    const transport = new WebTransport(transportUrl)
     await transport.ready
     status.value = "connected"
 

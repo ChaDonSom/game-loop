@@ -15,6 +15,7 @@
   "license": "ISC",
   "description": "",
   "dependencies": {
-    "@fails-components/webtransport": "^1.6.8"
+    "@fails-components/webtransport": "^1.6.8",
+    "dotenv": "^17.4.2"
   }
 }

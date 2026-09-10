@@ -1,11 +1,15 @@
+import "dotenv/config"
 import { Http3Server } from "@fails-components/webtransport"
 import { readFileSync } from "fs"
+
+const CERT_PATH = process.env.CERT_PATH
+const PRIV_KEY_PATH = process.env.PRIV_KEY_PATH
 
 const server = new Http3Server({
   port: 4433,
   host: "0.0.0.0",
-  cert: readFileSync("/etc/letsencrypt/live/web-transport.somero.dev/fullchain.pem"),
-  privKey: readFileSync("/etc/letsencrypt/live/web-transport.somero.dev/privkey.pem"),
+  cert: readFileSync(CERT_PATH),
+  privKey: readFileSync(PRIV_KEY_PATH),
 })
 
 server.startServer()
