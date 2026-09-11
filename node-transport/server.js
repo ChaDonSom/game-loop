@@ -1,9 +1,12 @@
 import "dotenv/config"
 import { Http3Server } from "@fails-components/webtransport"
 import { readFileSync } from "fs"
+import ensureLocalCert from "./ensureLocalCert.js"
 
 const CERT_PATH = process.env.CERT_PATH
 const PRIV_KEY_PATH = process.env.PRIV_KEY_PATH
+
+ensureLocalCert()
 
 process.on("unhandledRejection", (err) => {
   console.error("Unhandled rejection:", err)
@@ -18,13 +21,17 @@ const server = new Http3Server({
 })
 
 server.startServer()
+
 ;(async () => {
   const stream = await server.sessionStream("/count")
   const reader = stream.getReader()
 
   while (true) {
     const { done, value: session } = await reader.read()
-    if (done) break
+    if (done) {
+      console.log("client disconnected")
+      break
+    }
     handleSession(session)
   }
 })().catch((err) => console.error("Session loop crashed:", err))
