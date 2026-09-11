@@ -12,30 +12,22 @@ process.on("unhandledRejection", (err) => {
 const server = new Http3Server({
   port: 4433,
   host: "0.0.0.0",
+  secret: process.env.WT_SECRET || "changeit-to-something-real",
   cert: process.env.CERT_PATH ? readFileSync(CERT_PATH) : undefined,
   privKey: process.env.PRIV_KEY_PATH ? readFileSync(PRIV_KEY_PATH) : undefined,
 })
 
-const result = server.startServer()
-console.log("startServer returned:", result)
-if (result && typeof result.then === "function") {
-  result
-    .then(() => console.log("WebTransport server actually bound on :4433"))
-    .catch((err) => console.error("startServer FAILED:", err))
-} else {
-  console.log("WebTransport server listening on :4433 (sync)")
-}
-
+server.startServer()
 ;(async () => {
-  const sessionStream = server.sessionStream("/count")
-  const reader = sessionStream.getReader()
+  const stream = await server.sessionStream("/count")
+  const reader = stream.getReader()
 
   while (true) {
     const { done, value: session } = await reader.read()
     if (done) break
     handleSession(session)
   }
-})()
+})().catch((err) => console.error("Session loop crashed:", err))
 
 async function handleSession(session) {
   await session.ready
