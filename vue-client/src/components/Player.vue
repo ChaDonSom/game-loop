@@ -1,4 +1,5 @@
 <script lang="ts" setup>
+import Character from "@/components/Character.vue"
 import { updateHooks } from "@/store/updateHooks"
 import { onBeforeUnmount, onMounted, ref } from "vue"
 
@@ -40,8 +41,5 @@ function getInputXY() {
 </script>
 
 <template>
-  <div
-    style="width: 50px; height: 50px; background-color: red; position: absolute"
-    :style="{ top: xy.y + 'px', left: xy.x + 'px' }"
-  ></div>
+  <Character :style="{ top: xy.y + 'px', left: xy.x + 'px' }"></Character>
 </template>
