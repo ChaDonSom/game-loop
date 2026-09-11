@@ -22,12 +22,25 @@ onBeforeUnmount(() => {
   window.removeEventListener("keyup", onKeyUp)
 })
 
+let velocity = { x: 0, y: 0 }
 updateHooks.value.push(function update(deltaTime: number) {
-  // Update player logic here
   const input = getInputXY()
-  const mod = 100
-  xy.value.x += input.x * deltaTime * mod
-  xy.value.y += input.y * deltaTime * mod
+  const mod = 5000
+  // Instead of directly setting the new value, we increment velocity in that direction. We have an always-decaying
+  // velocity effect afterward as well.
+  velocity.x += input.x * deltaTime * mod
+  velocity.y += input.y * deltaTime * mod
+
+  // Apply some decay to the velocity
+  const decay = 0.9
+  velocity.x *= decay
+  velocity.y *= decay
+
+  // We can only apply the change if it doesn't go beyond the screen boundaries
+  const newX = xy.value.x + velocity.x * deltaTime
+  const newY = xy.value.y + velocity.y * deltaTime
+  xy.value.x = Math.max(0, Math.min(window.innerWidth - 50, newX))
+  xy.value.y = Math.max(0, Math.min(window.innerHeight - 50, newY))
 })
 
 const xy = ref({ x: 0, y: 0 })
@@ -41,5 +54,5 @@ function getInputXY() {
 </script>
 
 <template>
-  <Character :style="{ top: xy.y + 'px', left: xy.x + 'px' }"></Character>
+  <Character :style="{ transform: `translate(${xy.x}px, ${xy.y}px)` }"></Character>
 </template>
