@@ -20,8 +20,8 @@ const server = new Http3Server({
   privKey: process.env.PRIV_KEY_PATH ? readFileSync(PRIV_KEY_PATH) : undefined,
 })
 
-server.startServer()
-
+await server.startServer()
+console.log("HTTP/3 listening on 0.0.0.0:4433 - waiting for WebTransport sessions...")
 ;(async () => {
   const stream = await server.sessionStream("/count")
   const reader = stream.getReader()
@@ -37,8 +37,10 @@ server.startServer()
 })().catch((err) => console.error("Session loop crashed:", err))
 
 async function handleSession(session) {
+  console.log("session :", session)
   await session.ready
   console.log("client connected")
+  console.log("session :", session)
 
   let count = 0
   const interval = setInterval(() => {
