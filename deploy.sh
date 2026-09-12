@@ -1,4 +1,11 @@
 #!/bin/bash -l
+set -e
+
+export NVM_DIR="$HOME/.nvm"
+[ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
+
+# optional: verify
+echo "Using node: $(which node) $(node -v) npm: $(which npm) $(npm -v)"
 
 git pull
 
