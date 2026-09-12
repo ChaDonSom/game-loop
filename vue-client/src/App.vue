@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import Arena from "@/components/Arena.vue"
 import Datagrams from "@/components/Datagrams.vue"
+import MyVisitorId from "@/components/MyVisitorId.vue"
 import Player from "@/components/Player.vue"
 </script>
 
@@ -11,6 +12,7 @@ import Player from "@/components/Player.vue"
     <Player />
   </Arena>
   <Datagrams />
+  <MyVisitorId />
 </template>
 
 <style scoped></style>

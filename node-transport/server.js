@@ -2,6 +2,7 @@ import "dotenv/config"
 import { Http3Server } from "@fails-components/webtransport"
 import { readFileSync } from "fs"
 import ensureLocalCert from "./ensureLocalCert.js"
+import crypto from "crypto"
 
 const CERT_PATH = process.env.CERT_PATH
 const PRIV_KEY_PATH = process.env.PRIV_KEY_PATH
@@ -19,6 +20,7 @@ const server = new Http3Server({
   cert: process.env.CERT_PATH ? readFileSync(CERT_PATH) : undefined,
   privKey: process.env.PRIV_KEY_PATH ? readFileSync(PRIV_KEY_PATH) : undefined,
 })
+const activeSessions = new Map()
 
 await server.startServer()
 console.log("HTTP/3 listening on 0.0.0.0:4433 - waiting for WebTransport sessions...")
@@ -40,7 +42,14 @@ async function handleSession(session) {
   console.log("session :", session)
   await session.ready
   console.log("client connected")
-  console.log("session :", session)
+  console.log("session.id :", session.id)
+
+  const visitorId = crypto.randomUUID()
+  session.visitorId = visitorId
+  activeSessions.set(visitorId, session)
+
+  // Send a "Welcome" packet so client knows what server assigned as its visitor ID
+  sendWelcomeMessage(session, visitorId)
 
   let count = 0
   const interval = setInterval(() => {
@@ -51,5 +60,23 @@ async function handleSession(session) {
     writer.releaseLock()
   }, 1000)
 
-  session.closed.then(() => clearInterval(interval)).catch(() => clearInterval(interval))
+  session.closed
+    .then(() => {
+      clearInterval(interval)
+      activeSessions.delete(session.visitorId)
+    })
+    .catch(() => {
+      clearInterval(interval)
+      activeSessions.delete(session.visitorId)
+    })
+}
+
+async function sendWelcomeMessage(session, assignedId) {
+  const stream = await session.createUnidirectionalStream()
+  const writer = stream.getWriter()
+
+  // Send the specific client its own ID
+  const welcomePacket = JSON.stringify({ type: "welcome", yourId: assignedId })
+  await writer.write(new TextEncoder().encode(welcomePacket))
+  writer.releaseLock()
 }
