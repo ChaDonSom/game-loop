@@ -2,6 +2,7 @@
 import { ref } from "vue"
 import { remotePlayers } from "../store/network"
 import { updateHooks } from "@/store/updateHooks"
+import playerImage from "@/assets/image.png"
 
 const renderedPlayers = ref<Record<string, { x: number; y: number }>>({})
 
@@ -61,9 +62,18 @@ updateHooks.value.push(update)
   <div
     v-for="(player, id) in renderedPlayers"
     :key="id"
-    style="width: 50px; height: 50px; background: blue; position: absolute"
+    style="
+      width: 50px;
+      height: 50px;
+      background: blue;
+      position: absolute;
+      background-size: contain;
+      background-repeat: no-repeat;
+      background-position: center;
+    "
     :style="{
       transform: `translate(${player.x}px, ${player.y}px)`,
+      backgroundImage: `url(${playerImage})`,
     }"
   />
 </template>

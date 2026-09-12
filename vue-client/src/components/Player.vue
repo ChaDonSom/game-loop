@@ -4,6 +4,7 @@ import { queueNetworkUpdate } from "@/network"
 import { remotePlayers } from "@/store/network"
 import { updateHooks } from "@/store/updateHooks"
 import { onBeforeUnmount, onMounted, ref } from "vue"
+import playerImage from "@/assets/image2.png"
 
 const keysDown = ref<{ [key: string]: boolean }>({})
 function onKeyDown(event: KeyboardEvent) {
@@ -76,5 +77,13 @@ function getInputXY() {
 </script>
 
 <template>
-  <Character :style="{ transform: `translate(${xy.x}px, ${xy.y}px)` }"></Character>
+  <Character
+    :style="{
+      transform: `translate(${xy.x}px, ${xy.y}px)`,
+      backgroundImage: `url(${playerImage})`,
+      backgroundSize: 'contain',
+      backgroundRepeat: 'no-repeat',
+      backgroundPosition: 'center',
+    }"
+  ></Character>
 </template>
