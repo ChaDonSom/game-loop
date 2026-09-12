@@ -4,7 +4,7 @@ git pull
 
 cd ./node-transport
 npm install
-pm2 restart transport
+pm2 restart transport --update-env
 
 cd ../vue-client
 npm install
