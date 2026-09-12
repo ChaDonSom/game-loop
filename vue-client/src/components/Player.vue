@@ -1,6 +1,7 @@
 <script lang="ts" setup>
 import Character from "@/components/Character.vue"
 import { queueNetworkUpdate } from "@/network"
+import { remotePlayers } from "@/store/network"
 import { updateHooks } from "@/store/updateHooks"
 import { onBeforeUnmount, onMounted, ref } from "vue"
 
@@ -36,6 +37,21 @@ updateHooks.value.push(function update(deltaTime: number) {
   const decay = 0.9
   velocity.x *= decay
   velocity.y *= decay
+
+  // Collision detection with remote players
+  Object.values(remotePlayers.value).forEach((remotePlayer) => {
+    const snapshots = remotePlayer || []
+    const latestSnapshot = snapshots[snapshots.length - 1] || { x: 0, y: 0 }
+    // Simple collision detection: check if the bounding boxes overlap
+    const dx = xy.value.x - latestSnapshot.x
+    const dy = xy.value.y - latestSnapshot.y
+    const distance = Math.sqrt(dx * dx + dy * dy)
+    if (distance < 50) {
+      // Bounce back the player to avoid overlapping with the remote player
+      xy.value.x = latestSnapshot.x + (dx / distance) * 50
+      xy.value.y = latestSnapshot.y + (dy / distance) * 50
+    }
+  })
 
   // We can only apply the change if it doesn't go beyond the screen boundaries
   const newX = xy.value.x + velocity.x * deltaTime
