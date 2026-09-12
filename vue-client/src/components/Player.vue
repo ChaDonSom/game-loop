@@ -1,5 +1,6 @@
 <script lang="ts" setup>
 import Character from "@/components/Character.vue"
+import { queueNetworkUpdate } from "@/network"
 import { updateHooks } from "@/store/updateHooks"
 import { onBeforeUnmount, onMounted, ref } from "vue"
 
@@ -41,6 +42,11 @@ updateHooks.value.push(function update(deltaTime: number) {
   const newY = xy.value.y + velocity.y * deltaTime
   xy.value.x = Math.max(0, Math.min(window.innerWidth - 50, newX))
   xy.value.y = Math.max(0, Math.min(window.innerHeight - 50, newY))
+
+  // Only if the position has changed significantly, we send a network update
+  if (Math.abs(velocity.x) > 0.01 || Math.abs(velocity.y) > 0.01) {
+    queueNetworkUpdate({ x: xy.value.x, y: xy.value.y })
+  }
 })
 
 const xy = ref({ x: 0, y: 0 })

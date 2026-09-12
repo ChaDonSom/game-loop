@@ -25,7 +25,7 @@ const activeSessions = new Map()
 await server.startServer()
 console.log("HTTP/3 listening on 0.0.0.0:4433 - waiting for WebTransport sessions...")
 ;(async () => {
-  const stream = await server.sessionStream("/count")
+  const stream = await server.sessionStream("/wt")
   const reader = stream.getReader()
 
   while (true) {
@@ -39,10 +39,8 @@ console.log("HTTP/3 listening on 0.0.0.0:4433 - waiting for WebTransport session
 })().catch((err) => console.error("Session loop crashed:", err))
 
 async function handleSession(session) {
-  console.log("session :", session)
   await session.ready
   console.log("client connected")
-  console.log("session.id :", session.id)
 
   const visitorId = crypto.randomUUID()
   session.visitorId = visitorId
@@ -51,10 +49,38 @@ async function handleSession(session) {
   // Send a "Welcome" packet so client knows what server assigned as its visitor ID
   sendWelcomeMessage(session, visitorId)
 
+  let lastClientSeq = -1
+  ;(async () => {
+    const reader = session.datagrams.readable.getReader()
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) break
+      try {
+        const msg = JSON.parse(new TextDecoder().decode(value))
+        if (msg.type === "pos" && typeof msg.seq === "number" && msg.seq > lastClientSeq) {
+          lastClientSeq = msg.seq
+          broadcastDatagram(
+            {
+              type: "pos",
+              id: visitorId,
+              seq: msg.seq,
+              x: msg.x,
+              y: msg.y,
+              t: Date.now(),
+            },
+            visitorId,
+          )
+        }
+      } catch (e) {
+        console.error("Error processing client datagram:", e)
+      }
+    }
+  })().catch(() => {})
+
   let count = 0
   const interval = setInterval(() => {
     count++
-    const payload = new TextEncoder().encode(JSON.stringify({ count, t: Date.now() }))
+    const payload = new TextEncoder().encode(JSON.stringify({ type: "count", seq: count, count, t: Date.now() }))
     const writer = session.datagrams.writable.getWriter()
     writer.write(payload).catch(() => {}) // drop silently if it fails, this is the point
     writer.releaseLock()
@@ -69,6 +95,20 @@ async function handleSession(session) {
       clearInterval(interval)
       activeSessions.delete(session.visitorId)
     })
+}
+
+function broadcastDatagram(messageObj, senderVisitorId) {
+  const payload = new TextEncoder().encode(JSON.stringify(messageObj))
+  for (const [id, s] of activeSessions.entries()) {
+    if (id === senderVisitorId) continue
+    try {
+      const writer = s.datagrams.writable.getWriter()
+      writer.write(payload).catch(() => {})
+      writer.releaseLock()
+    } catch {
+      // ignore if locked or closed
+    }
+  }
 }
 
 async function sendWelcomeMessage(session, assignedId) {
