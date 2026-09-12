@@ -8,7 +8,10 @@ import RemotePlayers from "@/components/RemotePlayers.vue"
 
 <template>
   <h1>Game loop</h1>
-  <p>There is literally a game loop running at 60 fps now.</p>
+  <p>
+    Welcome to the game loop demo! This demonstrates a simple game loop running at 60 frames per second. Beside the game
+    loop is a networked environment where multiple players can interact in real-time, based on WebTransport.
+  </p>
   <Arena style="width: 100%; height: 100%; position: absolute; top: 0; left: 0">
     <Player />
     <RemotePlayers />

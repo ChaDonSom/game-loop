@@ -118,5 +118,6 @@ async function sendWelcomeMessage(session, assignedId) {
   // Send the specific client its own ID
   const welcomePacket = JSON.stringify({ type: "welcome", yourId: assignedId })
   await writer.write(new TextEncoder().encode(welcomePacket))
+  await writer.close()
   writer.releaseLock()
 }

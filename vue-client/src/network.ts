@@ -1,7 +1,7 @@
 import { getTransport } from "@/shared/transport"
 import { connectionStatus, myId, remotePlayers, serverCount, type PlayerSnapshot } from "@/store/network"
 
-const MS_PER_UPDATE = 50 // ~20 updates per second
+const MS_PER_UPDATE = 1000 / 30 // ~30 updates per second
 
 interface PositionInput {
   x: number
@@ -68,7 +68,6 @@ function handleDatagram(msg: any) {
   }
 
   if (msg.type === "pos") {
-    console.log("pos update")
     if (!msg.id || msg.id === myId.value) return // ignore own position
 
     const prevSeq = lastPlayerSeq.get(msg.id) ?? -1
@@ -115,6 +114,7 @@ async function startStreamReader(transport: WebTransport) {
 
 async function handleIncomingStream(stream: ReadableStream<Uint8Array>) {
   try {
+    console.log("Handling incoming stream")
     const reader = stream.getReader()
     const chunks: Uint8Array[] = []
     while (true) {
@@ -132,6 +132,7 @@ async function handleIncomingStream(stream: ReadableStream<Uint8Array>) {
     }
 
     const text = new TextDecoder().decode(merged)
+    console.log("text :", text)
     if (!text) return
 
     const msg = JSON.parse(text)
