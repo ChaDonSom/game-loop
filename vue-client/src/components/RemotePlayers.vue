@@ -1,18 +1,18 @@
 <script setup lang="ts">
-import { ref } from "vue"
+import { onBeforeUnmount, onMounted, ref } from "vue"
 import { remotePlayers } from "../store/network"
-import { updateHooks } from "@/store/updateHooks"
+import { renderHooks } from "@/store/renderHooks.ts"
 import playerImage from "@/assets/image.png"
 
 const renderedPlayers = ref<Record<string, { x: number; y: number }>>({})
 
-const INTERPOLATION_DELAY = 100
+const INTERPOLATION_DELAY = 60
 
 function lerp(a: number, b: number, t: number) {
   return a + (b - a) * t
 }
 
-function update() {
+function render() {
   const renderTime = performance.now() - INTERPOLATION_DELAY
 
   for (const [id, history] of Object.entries(remotePlayers.value)) {
@@ -55,7 +55,15 @@ function update() {
   }
 }
 
-updateHooks.value.push(update)
+onMounted(() => {
+  renderHooks.value.push(render)
+})
+onBeforeUnmount(() => {
+  const index = renderHooks.value.indexOf(render)
+  if (index !== -1) {
+    renderHooks.value.splice(index, 1)
+  }
+})
 </script>
 
 <template>
