@@ -14,10 +14,17 @@ function lerp(a: number, b: number, t: number) {
 
 function render() {
   const renderTime = performance.now() - INTERPOLATION_DELAY
+  const activePlayerIds = new Set<string>()
 
   for (const [id, history] of Object.entries(remotePlayers.value)) {
-    if (!Array.isArray(history)) continue // skip if history is not an array
-    if (!history || history.length < 2) {
+    if (!Array.isArray(history) || history.length === 0) continue // skip if history is not an array
+    activePlayerIds.add(id)
+
+    if (history.length < 2) {
+      const latest = history[history.length - 1]
+      if (latest) {
+        renderedPlayers.value[id] = { x: latest.x, y: latest.y }
+      }
       continue
     }
 
@@ -51,6 +58,12 @@ function render() {
     renderedPlayers.value[id] = {
       x: lerp(before.x, after.x, t),
       y: lerp(before.y, after.y, t),
+    }
+  }
+
+  for (const id of Object.keys(renderedPlayers.value)) {
+    if (!activePlayerIds.has(id)) {
+      delete renderedPlayers.value[id]
     }
   }
 }

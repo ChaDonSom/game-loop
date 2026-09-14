@@ -6,6 +6,7 @@ import crypto from "crypto"
 
 const CERT_PATH = process.env.CERT_PATH
 const PRIV_KEY_PATH = process.env.PRIV_KEY_PATH
+const WT_SECRET = process.env.WT_SECRET
 
 ensureLocalCert()
 
@@ -13,14 +14,19 @@ process.on("unhandledRejection", (err) => {
   console.error("Unhandled rejection:", err)
 })
 
+if (!WT_SECRET) {
+  throw new Error("WT_SECRET is required")
+}
+
 const server = new Http3Server({
   port: 4433,
   host: "0.0.0.0",
-  secret: process.env.WT_SECRET || "changeit-to-something-real",
+  secret: WT_SECRET,
   cert: process.env.CERT_PATH ? readFileSync(CERT_PATH) : undefined,
   privKey: process.env.PRIV_KEY_PATH ? readFileSync(PRIV_KEY_PATH) : undefined,
 })
 const activeSessions = new Map()
+const playerSnapshots = new Map()
 
 await server.startServer()
 console.log("HTTP/3 listening on 0.0.0.0:4433 - waiting for WebTransport sessions...")
@@ -46,8 +52,18 @@ async function handleSession(session) {
   session.visitorId = visitorId
   activeSessions.set(visitorId, session)
 
-  // Send a "Welcome" packet so client knows what server assigned as its visitor ID
-  sendWelcomeMessage(session, visitorId)
+  sendJsonMessage(session, { type: "welcome", yourId: visitorId }).catch((err) => {
+    console.error("Failed to send welcome packet:", err)
+  })
+
+  const existingPlayers = Array.from(playerSnapshots.entries())
+    .filter(([id]) => id !== visitorId)
+    .map(([id, snapshot]) => ({ id, ...snapshot }))
+  if (existingPlayers.length > 0) {
+    sendJsonMessage(session, { type: "state", players: existingPlayers }).catch((err) => {
+      console.error("Failed to send state packet:", err)
+    })
+  }
 
   let lastClientSeq = -1
   ;(async () => {
@@ -57,20 +73,25 @@ async function handleSession(session) {
       if (done) break
       try {
         const msg = JSON.parse(new TextDecoder().decode(value))
-        if (msg.type === "pos" && typeof msg.seq === "number" && msg.seq > lastClientSeq) {
-          lastClientSeq = msg.seq
-          broadcastDatagram(
-            {
-              type: "pos",
-              id: visitorId,
-              seq: msg.seq,
-              x: msg.x,
-              y: msg.y,
-              t: Date.now(),
-            },
-            visitorId,
-          )
+        if (!isValidPositionMessage(msg, lastClientSeq)) continue
+
+        lastClientSeq = msg.seq
+        const snapshot = {
+          seq: msg.seq,
+          x: msg.x,
+          y: msg.y,
+          t: Date.now(),
         }
+
+        playerSnapshots.set(visitorId, snapshot)
+        broadcastDatagram(
+          {
+            type: "pos",
+            id: visitorId,
+            ...snapshot,
+          },
+          visitorId,
+        )
       } catch (e) {
         console.error("Error processing client datagram:", e)
       }
@@ -86,15 +107,25 @@ async function handleSession(session) {
     writer.releaseLock()
   }, 1000)
 
-  session.closed
-    .then(() => {
-      clearInterval(interval)
-      activeSessions.delete(session.visitorId)
-    })
-    .catch(() => {
-      clearInterval(interval)
-      activeSessions.delete(session.visitorId)
-    })
+  const cleanup = () => {
+    clearInterval(interval)
+    activeSessions.delete(session.visitorId)
+    if (playerSnapshots.delete(session.visitorId)) {
+      broadcastDatagram({ type: "leave", id: session.visitorId }, session.visitorId)
+    }
+  }
+
+  session.closed.then(cleanup).catch(cleanup)
+}
+
+function isValidPositionMessage(msg, lastClientSeq) {
+  return (
+    msg?.type === "pos" &&
+    Number.isInteger(msg.seq) &&
+    msg.seq > lastClientSeq &&
+    Number.isFinite(msg.x) &&
+    Number.isFinite(msg.y)
+  )
 }
 
 function broadcastDatagram(messageObj, senderVisitorId) {
@@ -111,13 +142,10 @@ function broadcastDatagram(messageObj, senderVisitorId) {
   }
 }
 
-async function sendWelcomeMessage(session, assignedId) {
+async function sendJsonMessage(session, messageObj) {
   const stream = await session.createUnidirectionalStream()
   const writer = stream.getWriter()
-
-  // Send the specific client its own ID
-  const welcomePacket = JSON.stringify({ type: "welcome", yourId: assignedId })
-  await writer.write(new TextEncoder().encode(welcomePacket))
+  await writer.write(new TextEncoder().encode(JSON.stringify(messageObj)))
   await writer.close()
   writer.releaseLock()
 }

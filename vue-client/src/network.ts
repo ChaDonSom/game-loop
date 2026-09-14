@@ -2,6 +2,8 @@ import { getTransport } from "@/shared/transport"
 import { connectionStatus, myId, remotePlayers, serverCount, type PlayerSnapshot } from "@/store/network"
 
 const MS_PER_UPDATE = 1000 / 30 // ~30 updates per second
+const MAX_RECONNECT_ATTEMPTS = 3
+const RECONNECT_DELAY_MS = 1000
 
 interface PositionInput {
   x: number
@@ -14,22 +16,34 @@ let lastCountSeq = -1
 const lastPlayerSeq = new Map<string, number>()
 // survives HMR reloads so we don't re-lock the transport's streams a second time
 let initialized = import.meta.hot?.data.initialized ?? false
+let reconnectAttempts = import.meta.hot?.data.reconnectAttempts ?? 0
+let reconnectTimer = import.meta.hot?.data.reconnectTimer ?? null
 
 export async function initNetwork() {
   if (initialized) return
-  initialized = true
-  if (import.meta.hot) import.meta.hot.data.initialized = true
 
+  initialized = true
+  syncHotState()
   connectionStatus.value = "connecting"
+
   try {
     const transport = await getTransport()
     connectionStatus.value = "connected"
+    reconnectAttempts = 0
+    syncHotState()
 
-    startDatagramReader(transport)
-    startStreamReader(transport)
+    transport.closed.finally(() => {
+      handleDisconnect()
+    })
+
+    void startDatagramReader(transport)
+    void startStreamReader(transport)
     startNetLoop(transport)
   } catch (err) {
     connectionStatus.value = "disconnected"
+    initialized = false
+    syncHotState()
+    scheduleReconnect()
     console.error("Failed to connect transport:", err)
   }
 }
@@ -68,32 +82,14 @@ function handleDatagram(msg: any) {
   }
 
   if (msg.type === "pos") {
-    if (!msg.id || msg.id === myId.value) return // ignore own position
+    if (typeof msg.id !== "string" || msg.id === myId.value) return // ignore own position
+    upsertRemotePlayer(msg)
+    return
+  }
 
-    const prevSeq = lastPlayerSeq.get(msg.id) ?? -1
-    if (typeof msg.seq === "number") {
-      if (msg.seq <= prevSeq) return // drop duplicate or out-of-order player update
-      lastPlayerSeq.set(msg.id, msg.seq)
-    }
-
-    const snapshot: PlayerSnapshot = {
-      x: msg.x,
-      y: msg.y,
-      time: performance.now(),
-    }
-
-    let history = remotePlayers.value[msg.id]
-    if (!history) {
-      history = []
-      remotePlayers.value[msg.id] = history
-    }
-
-    history.push(snapshot)
-
-    // keep history bounded to recent snapshots
-    if (history.length > 20) {
-      history.splice(0, history.length - 20)
-    }
+  if (msg.type === "leave" && typeof msg.id === "string") {
+    delete remotePlayers.value[msg.id]
+    lastPlayerSeq.delete(msg.id)
   }
 }
 
@@ -139,6 +135,15 @@ async function handleIncomingStream(stream: ReadableStream<Uint8Array>) {
     if (msg.type === "welcome") {
       console.log("Received welcome message:", msg)
       myId.value = msg.yourId
+      return
+    }
+
+    if (msg.type === "state" && Array.isArray(msg.players)) {
+      for (const player of msg.players) {
+        if (player && typeof player.id === "string" && player.id !== myId.value) {
+          upsertRemotePlayer(player)
+        }
+      }
     }
   } catch (err) {
     console.error("Error reading incoming stream:", err)
@@ -147,9 +152,17 @@ async function handleIncomingStream(stream: ReadableStream<Uint8Array>) {
 
 async function startNetLoop(transport: WebTransport) {
   const writer = transport.datagrams.writable.getWriter()
+  let closed = false
+
+  transport.closed.finally(() => {
+    closed = true
+    writer.releaseLock()
+  })
 
   async function loop() {
-    while (networkBuffer.length > 0) {
+    if (closed) return
+
+    while (networkBuffer.length > 0 && !closed) {
       const update = networkBuffer.shift()
       if (!update) continue
 
@@ -165,13 +178,75 @@ async function startNetLoop(transport: WebTransport) {
         await writer.write(new TextEncoder().encode(JSON.stringify(payload)))
       } catch (err) {
         console.error("Error sending datagram:", err)
+        handleDisconnect()
+        return
       }
     }
 
     setTimeout(loop, MS_PER_UPDATE)
   }
 
-  loop()
+  void loop()
+}
+
+function upsertRemotePlayer(msg: { id: string; seq: unknown; x: unknown; y: unknown }) {
+  if (!Number.isInteger(msg.seq) || !Number.isFinite(msg.x) || !Number.isFinite(msg.y)) return
+
+  const seq = Number(msg.seq)
+  const x = Number(msg.x)
+  const y = Number(msg.y)
+  const prevSeq = lastPlayerSeq.get(msg.id) ?? -1
+  if (seq <= prevSeq) return // drop duplicate or out-of-order player update
+  lastPlayerSeq.set(msg.id, seq)
+
+  const snapshot: PlayerSnapshot = {
+    x,
+    y,
+    time: performance.now(),
+  }
+
+  let history = remotePlayers.value[msg.id]
+  if (!history) {
+    history = []
+    remotePlayers.value[msg.id] = history
+  }
+
+  history.push(snapshot)
+
+  // keep history bounded to recent snapshots
+  if (history.length > 20) {
+    history.splice(0, history.length - 20)
+  }
+}
+
+function handleDisconnect() {
+  if (connectionStatus.value !== "disconnected") {
+    connectionStatus.value = "disconnected"
+  }
+  if (!initialized) return
+
+  initialized = false
+  syncHotState()
+  scheduleReconnect()
+}
+
+function scheduleReconnect() {
+  if (reconnectTimer || reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) return
+
+  reconnectAttempts += 1
+  reconnectTimer = setTimeout(() => {
+    reconnectTimer = null
+    syncHotState()
+    void initNetwork()
+  }, RECONNECT_DELAY_MS * reconnectAttempts)
+  syncHotState()
+}
+
+function syncHotState() {
+  if (!import.meta.hot) return
+  import.meta.hot.data.initialized = initialized
+  import.meta.hot.data.reconnectAttempts = reconnectAttempts
+  import.meta.hot.data.reconnectTimer = reconnectTimer
 }
 
 export function queueNetworkUpdate(update: PositionInput) {
@@ -179,7 +254,7 @@ export function queueNetworkUpdate(update: PositionInput) {
 }
 
 // Auto-start network on load
-initNetwork()
+void initNetwork()
 
 if (import.meta.hot) {
   import.meta.hot.accept()
