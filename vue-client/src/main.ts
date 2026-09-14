@@ -1,6 +1,7 @@
 import { createApp, ref } from "vue"
 import App from "./App.vue"
 import { updateHooks } from "@/store/updateHooks.ts"
+import { renderHooks } from "@/store/renderHooks.ts"
 
 createApp(App).mount("#app")
 
@@ -34,4 +35,5 @@ function update(deltaTime: number) {
 
 function render(interpolation: number) {
   // Render your game scene here using the interpolation factor
+  renderHooks.value.forEach((hook) => hook(interpolation))
 }
