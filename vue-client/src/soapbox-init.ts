@@ -155,10 +155,10 @@ async function init() {
 
   // Relative attachment points for 4 wheels on the chassis [X, Y, Z]
   const wheelOffsets = [
-    new RAPIER.Vector3(chassisWidth / 2, -chassisHeight / 4, -chassisLength / 3), // Front-Right
-    new RAPIER.Vector3(-chassisWidth / 2, -chassisHeight / 4, -chassisLength / 3), // Front-Left
-    new RAPIER.Vector3(chassisWidth / 2, -chassisHeight / 4, chassisLength / 3), // Rear-Right
-    new RAPIER.Vector3(-chassisWidth / 2, -chassisHeight / 4, chassisLength / 3), // Rear-Left
+    new RAPIER.Vector3(chassisWidth / 2, -chassisHeight / 6, -chassisLength / 3), // Front-Right
+    new RAPIER.Vector3(-chassisWidth / 2, -chassisHeight / 6, -chassisLength / 3), // Front-Left
+    new RAPIER.Vector3(chassisWidth / 2, -chassisHeight / 6, chassisLength / 3), // Rear-Right
+    new RAPIER.Vector3(-chassisWidth / 2, -chassisHeight / 6, chassisLength / 3), // Rear-Left
   ]
 
   const wheelMeshes: THREE.Mesh[] = []
@@ -245,8 +245,8 @@ async function init() {
       }
 
       // Throttle/brake rear wheels (Index 2 and 3)
-      if (keys.ArrowUp || keys.KeyW) engineForce = Math.min(engineForce + 0.2, maxEngineForce)
-      if (keys.ArrowDown || keys.KeyS) engineForce = Math.max(engineForce - 0.25, minEngineForce)
+      if (keys.ArrowUp || keys.KeyW) engineForce = Math.min(engineForce + 0.1, maxEngineForce)
+      if (keys.ArrowDown || keys.KeyS) engineForce = Math.max(engineForce - 0.1, minEngineForce)
       if (!keys.ArrowUp && !keys.KeyW && !keys.ArrowDown && !keys.KeyS) {
         // Gradually reduce engine force to zero when no throttle or brake keys are pressed
         engineForce *= 0.9 // Gradually reduce engine force towards zero
