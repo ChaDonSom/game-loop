@@ -4,13 +4,12 @@ import MyVisitorId from "@/components/MyVisitorId.vue"
 </script>
 
 <template>
-  <div style="position: absolute; top: 0; left: 0; color: white">
-    <p>
-      Welcome to the game loop demo! This demonstrates a simple game loop running at 60 frames per second. Beside the
-      game loop is a networked environment where multiple players can interact in real-time, based on WebTransport.
-    </p>
-    <Datagrams />
-    <MyVisitorId />
+  <div style="position: absolute; top: 0; left: 0; right: 0; color: white; display: flex; gap: 4px">
+    <div>
+      <MyVisitorId />
+      <Datagrams />
+    </div>
+    <p>Simple soapbox cars in a shared physics environment.</p>
   </div>
 </template>
 
