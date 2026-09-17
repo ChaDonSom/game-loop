@@ -1,9 +1,6 @@
 <script setup lang="ts">
-import Arena from "@/components/Arena.vue"
 import Datagrams from "@/components/Datagrams.vue"
 import MyVisitorId from "@/components/MyVisitorId.vue"
-import Player from "@/components/Player.vue"
-import RemotePlayers from "@/components/RemotePlayers.vue"
 </script>
 
 <template>
