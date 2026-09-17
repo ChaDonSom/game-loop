@@ -1,5 +1,4 @@
 import * as THREE from "three"
-import { OrbitControls } from "three/addons/controls/OrbitControls.js"
 import RAPIER from "@dimforge/rapier3d-compat"
 
 async function init() {
@@ -7,7 +6,7 @@ async function init() {
   // #region MARK: 1. INITIALIZE RAPIER WASM & PHYSICS WORLD
   // ----------------------------------------------------
   // Rapier requires loading the WASM binary before any physics calls.
-  await RAPIER.init({})
+  await RAPIER.init()
 
   const gravity = new RAPIER.Vector3(0.0, -9.81, 0.0)
   const world = new RAPIER.World(gravity)
@@ -29,7 +28,7 @@ async function init() {
   const renderer = new THREE.WebGLRenderer({ antialias: true })
   renderer.setSize(window.innerWidth, window.innerHeight)
   renderer.shadowMap.enabled = true
-  container.appendChild(renderer.domElement)
+  container?.appendChild(renderer.domElement)
 
   // const controls = new OrbitControls(camera, renderer.domElement)
   // controls.enableDamping = true
@@ -87,7 +86,7 @@ async function init() {
     wallThickness = 1,
     wallLength = 1000
 
-  const createWall = (x, y, z, rotY = 0) => {
+  const createWall = (x: number, y: number, z: number, rotY = 0) => {
     const q = new THREE.Quaternion().setFromAxisAngle(
       new THREE.Vector3(0, 1, 0), // Y axis
       rotY, // Rotation around the Y axis in radians
@@ -109,7 +108,7 @@ async function init() {
   }
 
   // Create four walls around the ground plane
-  const degToRad = (deg) => (deg * Math.PI) / 180
+  const degToRad = (deg: number) => (deg * Math.PI) / 180
   createWall(0, wallHeight / 2, -500) // Back wall
   createWall(0, wallHeight / 2, 500) // Front wall
   createWall(-500, wallHeight / 2, 0, degToRad(90)) // Left wall
@@ -162,7 +161,7 @@ async function init() {
     new RAPIER.Vector3(-chassisWidth / 2, -chassisHeight / 4, chassisLength / 3), // Rear-Left
   ]
 
-  const wheelMeshes = []
+  const wheelMeshes: THREE.Mesh[] = []
   const wheelGeo = new THREE.CylinderGeometry(wheelRadius, wheelRadius, wheelWidth, 24)
   wheelGeo.rotateZ(Math.PI / 2)
   const wheelMat = new THREE.MeshStandardMaterial({ color: 0x111111 })
@@ -200,13 +199,15 @@ async function init() {
     KeyS: false,
   }
   window.addEventListener("keydown", (e) => {
-    if (e.code in keys) keys[e.code] = true
+    const code = e.code as keyof typeof keys
+    if (code in keys) keys[code] = true
   })
   window.addEventListener("keyup", (e) => {
-    if (e.code in keys) keys[e.code] = false
+    const code = e.code as keyof typeof keys
+    if (code in keys) keys[code] = false
   })
 
-  function clamp(value, min, max) {
+  function clamp(value: number, min: number, max: number): number {
     return Math.min(Math.max(value, min), max)
   }
 
@@ -223,7 +224,7 @@ async function init() {
   }
 
   // #region MARK: 5.3 CONTROLS DURING GAMEPLAY
-  function handleSteeringAndDrive(dt, body) {
+  function handleSteeringAndDrive(dt: number, body: RAPIER.RigidBody) {
     const pad = getGamepadState()
     const connected = pad.connected
     const steerInput = clamp(pad.steer, -1, 1)
@@ -334,6 +335,7 @@ async function init() {
     for (let i = 0; i < vehicle.numWheels(); i++) {
       const connectionPoint = vehicle.wheelChassisConnectionPointCs(i)
       const suspensionLength = vehicle.wheelSuspensionLength(i)
+      if (suspensionLength === null || connectionPoint === null) continue
 
       // Start at the suspension attachment point and move
       // down along the suspension direction.
@@ -342,16 +344,16 @@ async function init() {
       // Convert chassis-local position into world space.
       tempWheelPos.applyQuaternion(tempChassisQuat)
       tempWheelPos.add(chassisMesh.position)
-      wheelMeshes[i].position.copy(tempWheelPos)
+      wheelMeshes[i]?.position.copy(tempWheelPos)
 
       // Start with the chassis orientation.
-      wheelMeshes[i].quaternion.copy(tempChassisQuat)
+      wheelMeshes[i]?.quaternion.copy(tempChassisQuat)
 
       // Front wheels steer relative to the chassis.
       if (i < 2) {
         const steeringQuat = new THREE.Quaternion()
         steeringQuat.setFromAxisAngle(new THREE.Vector3(0, 1, 0), steering)
-        wheelMeshes[i].quaternion.multiply(steeringQuat)
+        wheelMeshes[i]?.quaternion.multiply(steeringQuat)
       }
     }
     // controls.update()
