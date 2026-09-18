@@ -328,9 +328,8 @@ async function init() {
 
     camera.lookAt(cameraLookAt)
 
-    camera.lookAt(cameraLookAt)
-
-    // AUDITED API: Synchronize wheel meshes by converting chassis-relative positions to world coordinates
+    // #region MARK: Wheel meshes to world coordinates
+    // Synchronize wheel meshes by converting chassis-relative positions to world coordinates
     tempChassisQuat.set(cRot.x, cRot.y, cRot.z, cRot.w)
     for (let i = 0; i < vehicle.numWheels(); i++) {
       const connectionPoint = vehicle.wheelChassisConnectionPointCs(i)
