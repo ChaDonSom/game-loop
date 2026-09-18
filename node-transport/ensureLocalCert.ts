@@ -4,9 +4,9 @@ import { existsSync, mkdirSync, writeFileSync, readFileSync } from "fs"
 import { dirname, join } from "path"
 import os from "os"
 
-const CERT_PATH = process.env.CERT_PATH
-const PRIV_KEY_PATH = process.env.PRIV_KEY_PATH
-const CERT_HASH_OUT_PATH = process.env.CERT_HASH_OUT_PATH
+const CERT_PATH = process.env.CERT_PATH ?? ""
+const PRIV_KEY_PATH = process.env.PRIV_KEY_PATH ?? ""
+const CERT_HASH_OUT_PATH = process.env.CERT_HASH_OUT_PATH ?? ""
 const IS_LOCAL = process.env.NODE_ENV !== "production"
 const DAYS_VALID = 10
 const RENEW_BUFFER_SECONDS = 2 * 86400

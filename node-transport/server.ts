@@ -4,9 +4,9 @@ import { readFileSync } from "fs"
 import ensureLocalCert from "./ensureLocalCert.js"
 import crypto from "crypto"
 
-const CERT_PATH = process.env.CERT_PATH
-const PRIV_KEY_PATH = process.env.PRIV_KEY_PATH
-const WT_SECRET = process.env.WT_SECRET
+const CERT_PATH = process.env.CERT_PATH ?? ""
+const PRIV_KEY_PATH = process.env.PRIV_KEY_PATH ?? ""
+const WT_SECRET = process.env.WT_SECRET ?? ""
 
 ensureLocalCert()
 
@@ -44,7 +44,13 @@ console.log("HTTP/3 listening on 0.0.0.0:4433 - waiting for WebTransport session
   }
 })().catch((err) => console.error("Session loop crashed:", err))
 
-async function handleSession(session) {
+async function handleSession(session: {
+  ready: Promise<void>
+  visitorId?: string
+  datagrams: { readable: ReadableStream<Uint8Array>; writable: WritableStream<Uint8Array> }
+  closed: Promise<void>
+  createUnidirectionalStream: () => Promise<WritableStream<Uint8Array>>
+}) {
   await session.ready
   console.log("client connected")
 
@@ -109,26 +115,28 @@ async function handleSession(session) {
 
   const cleanup = () => {
     clearInterval(interval)
-    activeSessions.delete(session.visitorId)
-    if (playerSnapshots.delete(session.visitorId)) {
-      broadcastDatagram({ type: "leave", id: session.visitorId }, session.visitorId)
+    if (session.visitorId) {
+      activeSessions.delete(session.visitorId)
+      if (playerSnapshots.delete(session.visitorId)) {
+        broadcastDatagram({ type: "leave", id: session.visitorId }, session.visitorId)
+      }
     }
   }
 
   session.closed.then(cleanup).catch(cleanup)
 }
 
-function isValidPositionMessage(msg, lastClientSeq) {
+function isValidPositionMessage(msg: { type?: string; seq?: number; x?: number; y?: number }, lastClientSeq: number) {
   return (
     msg?.type === "pos" &&
     Number.isInteger(msg.seq) &&
-    msg.seq > lastClientSeq &&
+    Number(msg.seq) > lastClientSeq &&
     Number.isFinite(msg.x) &&
     Number.isFinite(msg.y)
   )
 }
 
-function broadcastDatagram(messageObj, senderVisitorId) {
+function broadcastDatagram(messageObj: Record<string, unknown>, senderVisitorId: string) {
   const payload = new TextEncoder().encode(JSON.stringify(messageObj))
   for (const [id, s] of activeSessions.entries()) {
     if (id === senderVisitorId) continue
@@ -142,7 +150,10 @@ function broadcastDatagram(messageObj, senderVisitorId) {
   }
 }
 
-async function sendJsonMessage(session, messageObj) {
+async function sendJsonMessage(
+  session: { createUnidirectionalStream: () => Promise<WritableStream<Uint8Array>> },
+  messageObj: Record<string, unknown>,
+) {
   const stream = await session.createUnidirectionalStream()
   const writer = stream.getWriter()
   await writer.write(new TextEncoder().encode(JSON.stringify(messageObj)))

@@ -1,11 +1,13 @@
 {
   "name": "web-transport",
   "version": "1.0.0",
-  "main": "server.js",
+  "main": "dist/server.js",
   "type": "module",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1",
-    "start": "node server.js"
+    "build": "tsc",
+    "start": "node dist/server.js",
+    "dev": "tsc --watch",
+    "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [
     "web",
@@ -18,6 +20,11 @@
   "dependencies": {
     "@fails-components/webtransport": "^1.6.8",
     "@fails-components/webtransport-transport-http3-quiche": "^1.6.8",
-    "dotenv": "^17.4.2"
+    "dotenv": "^17.4.2",
+    "@game-loop/shared": "*"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.1",
+    "typescript": "^7.0.2"
   }
 }
