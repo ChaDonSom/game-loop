@@ -1,15 +1,13 @@
 import * as THREE from "three"
 import RAPIER from "@dimforge/rapier3d-compat"
+import { initRapier } from "@game-loop/shared"
 
 async function init() {
   // ----------------------------------------------------
   // #region MARK: 1. INITIALIZE RAPIER WASM & PHYSICS WORLD
   // ----------------------------------------------------
   // Rapier requires loading the WASM binary before any physics calls.
-  await RAPIER.init()
-
-  const gravity = new RAPIER.Vector3(0.0, -9.81, 0.0)
-  const world = new RAPIER.World(gravity)
+  const { world } = await initRapier()
 
   // ----------------------------------------------------
   // #region MARK: 2. THREE.JS SCENE SETUP

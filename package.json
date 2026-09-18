@@ -1,0 +1,12 @@
+{
+  "name": "game-loop",
+  "private": true,
+  "workspaces": [
+    "shared",
+    "node-transport",
+    "vue-client"
+  ],
+  "allowScripts": {
+    "@fails-components/webtransport-transport-http3-quiche": true
+  }
+}
