@@ -9,7 +9,12 @@ echo "Using node: $(which node) $(node -v) npm: $(which npm) $(npm -v)"
 
 git pull
 
-cd ./node-transport
+npm install
+
+cd ./shared
+npm install
+
+cd ../node-transport
 npm install
 pm2 restart transport --update-env
 
