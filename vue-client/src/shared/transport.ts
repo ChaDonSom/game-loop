@@ -44,7 +44,23 @@ export async function getTransport(): Promise<WebTransport> {
 
 function shouldPinLocalCertificate(transportUrl: string) {
   const hostname = new URL(transportUrl).hostname
-  return hostname === "localhost" || hostname === "127.0.0.1" || hostname === "::1" || hostname === "penguin.linux.test"
+  if (
+    hostname === "localhost" ||
+    hostname === "127.0.0.1" ||
+    hostname === "::1" ||
+    hostname === "penguin.linux.test" ||
+    hostname === "linux.test"
+  ) {
+    return true
+  }
+
+  const octets = hostname.split(".").map(Number)
+  if (octets.length !== 4 || octets.some((octet) => !Number.isInteger(octet) || octet < 0 || octet > 255)) {
+    return false
+  }
+
+  const secondOctet = octets[1]
+  return octets[0] === 100 && secondOctet !== undefined && secondOctet >= 64 && secondOctet <= 127
 }
 
 function hexToU8(hex: string): Uint8Array<ArrayBuffer> {

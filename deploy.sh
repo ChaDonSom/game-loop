@@ -1,5 +1,5 @@
 #!/bin/bash -l
-set -e
+set -e # Exit immediately if a command exits with a non-zero status
 
 export NVM_DIR="$HOME/.nvm"
 [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
@@ -9,18 +9,7 @@ echo "Using node: $(which node) $(node -v) npm: $(which npm) $(npm -v)"
 
 git pull
 
-npm install
-
-cd ./shared
-npm install
-
-cd ../node-transport
-npm install
-pm2 restart transport --update-env
-
-cd ../vue-client
-npm install
+npm ci
 npm run build
-
-cd ../
+pm2 restart transport --update-env
 # Nginx takes care of the rest

@@ -1,1 +1,1 @@
-export { initRapier } from "./rapier"
+export { initRapier } from "./rapier.js"

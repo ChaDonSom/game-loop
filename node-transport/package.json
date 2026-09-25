@@ -6,7 +6,9 @@
   "scripts": {
     "build": "tsc",
     "start": "node dist/server.js",
-    "dev": "tsc --watch",
+    "dev": "run-p dev:compile dev:run",
+    "dev:compile": "tsc --watch",
+    "dev:run": "node --watch dist/server.js",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [

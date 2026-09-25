@@ -6,6 +6,16 @@
     "node-transport",
     "vue-client"
   ],
+  "scripts": {
+    "build": "npm run build --workspace=@game-loop/shared && npm run build --workspace=web-transport && npm run build --workspace=vue",
+    "dev": "run-p dev:shared dev:server dev:client",
+    "dev:shared": "npm --workspace=@game-loop/shared run dev",
+    "dev:server": "npm --workspace=web-transport run dev",
+    "dev:client": "npm --workspace=vue run dev -- --host 0.0.0.0"
+  },
+  "devDependencies": {
+    "npm-run-all2": "^9.0.2"
+  },
   "allowScripts": {
     "@fails-components/webtransport-transport-http3-quiche": true
   }
