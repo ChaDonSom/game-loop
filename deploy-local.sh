@@ -6,4 +6,4 @@
 export $(grep -v '^#' .env | xargs)
 
 # bash -l: ensures that the login shell is used, which loads nvm
-ssh gameloop@"${PROD_URL#https://}" -t "bash -l -c 'cd /home/gameloop/game-loop && ./deploy.sh'"
+ssh gameloop@"${PROD_URL#https://}" -t "bash -l -c 'cd /home/soapboxcar/soapbox-car && ./deploy.sh'"
