@@ -34,11 +34,12 @@ const server = new Http3Server({
 const activeSessions = new Map()
 const playerSnapshots = new Map()
 
-await server.startServer()
+const sessionStream = server.sessionStream("/wt")
+server.startServer()
+await server.ready
 console.log(`HTTP/3 listening on 0.0.0.0:${WT_PORT} - waiting for WebTransport sessions...`)
 ;(async () => {
-  const stream = await server.sessionStream("/wt")
-  const reader = stream.getReader()
+  const reader = sessionStream.getReader()
 
   while (true) {
     const { done, value: session } = await reader.read()
