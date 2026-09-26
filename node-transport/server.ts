@@ -8,6 +8,11 @@ import { initRapier } from "@game-loop/shared"
 const CERT_PATH = process.env.CERT_PATH ?? ""
 const PRIV_KEY_PATH = process.env.PRIV_KEY_PATH ?? ""
 const WT_SECRET = process.env.WT_SECRET ?? ""
+const WT_PORT = Number(process.env.WT_PORT ?? "4433")
+
+if (!Number.isInteger(WT_PORT) || WT_PORT < 1 || WT_PORT > 65535) {
+  throw new Error("WT_PORT must be an integer between 1 and 65535")
+}
 
 ensureLocalCert()
 
@@ -20,7 +25,7 @@ if (!WT_SECRET) {
 }
 
 const server = new Http3Server({
-  port: 4433,
+  port: WT_PORT,
   host: "0.0.0.0",
   secret: WT_SECRET,
   cert: process.env.CERT_PATH ? readFileSync(CERT_PATH) : undefined,
@@ -30,7 +35,7 @@ const activeSessions = new Map()
 const playerSnapshots = new Map()
 
 await server.startServer()
-console.log("HTTP/3 listening on 0.0.0.0:4433 - waiting for WebTransport sessions...")
+console.log(`HTTP/3 listening on 0.0.0.0:${WT_PORT} - waiting for WebTransport sessions...`)
 ;(async () => {
   const stream = await server.sessionStream("/wt")
   const reader = stream.getReader()
