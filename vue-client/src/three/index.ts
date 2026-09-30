@@ -1,0 +1,6 @@
+export { initScene, initCamera, initRenderer, initLights } from "./scene"
+export { default as initRamp } from "./ramp"
+export { default as initGround } from "./ground"
+export { default as initWalls } from "./walls"
+export { default as initChassis } from "./chassis"
+export { default as initWheels } from "./wheels"

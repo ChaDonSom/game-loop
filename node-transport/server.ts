@@ -3,7 +3,7 @@ import { Http3Server } from "@fails-components/webtransport"
 import { readFileSync } from "fs"
 import ensureLocalCert from "./ensureLocalCert.js"
 import crypto from "crypto"
-import { initRapier } from "@game-loop/shared"
+import initServerRapier from "./initServerRapier.js"
 
 const CERT_PATH = process.env.CERT_PATH ?? ""
 const PRIV_KEY_PATH = process.env.PRIV_KEY_PATH ?? ""
@@ -69,8 +69,7 @@ async function handleSession(session: {
     console.error("Failed to send welcome packet:", err)
   })
 
-  const { world, gravity } = await initRapier()
-  console.log("Rapier world initialized with gravity:", gravity.x, gravity.y, gravity.z)
+  await initServerRapier()
 
   const existingPlayers = Array.from(playerSnapshots.entries())
     .filter(([id]) => id !== visitorId)

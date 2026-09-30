@@ -1,1 +1,6 @@
 export { initRapier } from "./rapier.js"
+export { default as ramp } from "./rapier/ramp.js"
+export { default as initGround } from "./rapier/ground.js"
+export { default as initWalls } from "./rapier/walls.js"
+export { default as initChassis } from "./rapier/chassis.js"
+export { default as initWheels } from "./rapier/wheels.js"
