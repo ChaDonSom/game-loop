@@ -1,5 +1,17 @@
 import { getTransport } from "@/shared/transport"
-import { connectionStatus, myId, remotePlayers, serverCount, type PlayerSnapshot } from "@/store/network"
+import {
+  authoritativePlayers,
+  connectionStatus,
+  myId,
+  remotePlayers,
+  serverCount,
+  type PlayerSnapshot,
+  type RotationSnapshot,
+  type Vector3Snapshot,
+  type VehicleSnapshot,
+} from "@/store/network"
+import keys from "@/input/keys"
+import getGamePadState from "@/input/pad"
 
 const MS_PER_UPDATE = 1000 / 30 // ~30 updates per second
 const MAX_RECONNECT_ATTEMPTS = 3
@@ -10,9 +22,16 @@ interface PositionInput {
   y: number
 }
 
+interface ControlsInput {
+  keys: typeof keys
+  pad: ReturnType<typeof getGamePadState>
+}
+
 const networkBuffer: PositionInput[] = []
+let latestControls: ControlsInput | null = null
 let clientSeq = 0
 let lastCountSeq = -1
+let lastStateSeq = -1
 const lastPlayerSeq = new Map<string, number>()
 // survives HMR reloads so we don't re-lock the transport's streams a second time
 let initialized = import.meta.hot?.data.initialized ?? false
@@ -87,8 +106,14 @@ function handleDatagram(msg: any) {
     return
   }
 
+  if (msg.type === "state") {
+    upsertAuthoritativePlayers(msg)
+    return
+  }
+
   if (msg.type === "leave" && typeof msg.id === "string") {
     delete remotePlayers.value[msg.id]
+    delete authoritativePlayers.value[msg.id]
     lastPlayerSeq.delete(msg.id)
   }
 }
@@ -163,21 +188,41 @@ async function startNetLoop(transport: WebTransport) {
     if (closed) return
 
     while (networkBuffer.length > 0 && !closed) {
-      const update = networkBuffer.shift()
-      if (!update) continue
+      const networkUpdate = networkBuffer.shift()
+      if (!networkUpdate) continue
 
       clientSeq++
       const payload = {
         type: "pos",
         seq: clientSeq,
-        x: update.x,
-        y: update.y,
+        x: networkUpdate.x,
+        y: networkUpdate.y,
       }
 
       try {
         await writer.write(new TextEncoder().encode(JSON.stringify(payload)))
       } catch (err) {
         console.error("Error sending datagram:", err)
+        handleDisconnect()
+        return
+      }
+    }
+
+    if (latestControls && !closed) {
+      clientSeq++
+      try {
+        await writer.write(
+          new TextEncoder().encode(
+            JSON.stringify({
+              type: "controls",
+              seq: clientSeq,
+              keys: latestControls.keys,
+              pad: latestControls.pad,
+            }),
+          ),
+        )
+      } catch (err) {
+        console.error("Error sending controls:", err)
         handleDisconnect()
         return
       }
@@ -219,6 +264,51 @@ function upsertRemotePlayer(msg: { id: string; seq: unknown; x: unknown; y: unkn
   }
 }
 
+function upsertAuthoritativePlayers(msg: any) {
+  if (!Number.isInteger(msg.seq) || msg.seq <= lastStateSeq || !Array.isArray(msg.players)) return
+  lastStateSeq = msg.seq
+
+  const snapshots: Record<string, VehicleSnapshot> = {}
+  for (const player of msg.players) {
+    if (
+      !player ||
+      typeof player.id !== "string" ||
+      !Number.isInteger(player.ack) ||
+      !isVector3Snapshot(player.position) ||
+      !isRotationSnapshot(player.rotation) ||
+      !isVector3Snapshot(player.velocity)
+    ) {
+      continue
+    }
+
+    snapshots[player.id] = {
+      id: player.id,
+      seq: msg.seq,
+      ack: player.ack,
+      position: player.position,
+      rotation: player.rotation,
+      velocity: player.velocity,
+      time: performance.now(),
+    }
+  }
+
+  authoritativePlayers.value = snapshots
+}
+
+function isVector3Snapshot(value: any): value is Vector3Snapshot {
+  return value && Number.isFinite(value.x) && Number.isFinite(value.y) && Number.isFinite(value.z)
+}
+
+function isRotationSnapshot(value: any): value is RotationSnapshot {
+  return (
+    value &&
+    Number.isFinite(value.x) &&
+    Number.isFinite(value.y) &&
+    Number.isFinite(value.z) &&
+    Number.isFinite(value.w)
+  )
+}
+
 function handleDisconnect() {
   if (connectionStatus.value !== "disconnected") {
     connectionStatus.value = "disconnected"
@@ -251,6 +341,13 @@ function syncHotState() {
 
 export function queueNetworkUpdate(update: PositionInput) {
   networkBuffer.push(update)
+}
+
+export function queueControls(update: ControlsInput) {
+  latestControls = {
+    keys: { ...update.keys },
+    pad: { ...update.pad },
+  }
 }
 
 // Auto-start network on load

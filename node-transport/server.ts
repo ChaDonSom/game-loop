@@ -4,6 +4,7 @@ import { readFileSync } from "fs"
 import ensureLocalCert from "./ensureLocalCert.js"
 import crypto from "crypto"
 import initServerRapier from "./initServerRapier.js"
+import controls from "./controls.js"
 
 const CERT_PATH = process.env.CERT_PATH ?? ""
 const PRIV_KEY_PATH = process.env.PRIV_KEY_PATH ?? ""
@@ -32,12 +33,13 @@ const server = new Http3Server({
   privKey: process.env.PRIV_KEY_PATH ? readFileSync(PRIV_KEY_PATH) : undefined,
 })
 const activeSessions = new Map()
-const playerSnapshots = new Map()
+const playerSnapshots = new Map<string, { seq: number; x: number; y: number; t: number }>()
 
 const sessionStream = server.sessionStream("/wt")
 server.startServer()
 await server.ready
 console.log(`HTTP/3 listening on 0.0.0.0:${WT_PORT} - waiting for WebTransport sessions...`)
+const simulation = await initServerRapier(broadcastDatagram)
 ;(async () => {
   const reader = sessionStream.getReader()
 
@@ -64,12 +66,11 @@ async function handleSession(session: {
   const visitorId = crypto.randomUUID()
   session.visitorId = visitorId
   activeSessions.set(visitorId, session)
+  simulation.addPlayer(visitorId)
 
   sendJsonMessage(session, { type: "welcome", yourId: visitorId }).catch((err) => {
     console.error("Failed to send welcome packet:", err)
   })
-
-  await initServerRapier()
 
   const existingPlayers = Array.from(playerSnapshots.entries())
     .filter(([id]) => id !== visitorId)
@@ -88,25 +89,23 @@ async function handleSession(session: {
       if (done) break
       try {
         const msg = JSON.parse(new TextDecoder().decode(value))
-        if (!isValidPositionMessage(msg, lastClientSeq)) continue
-
+        if (!isValidMessage(msg) || msg.seq <= lastClientSeq) continue
         lastClientSeq = msg.seq
-        const snapshot = {
-          seq: msg.seq,
-          x: msg.x,
-          y: msg.y,
-          t: Date.now(),
+
+        if (isValidPositionMessage(msg)) {
+          const snapshot = { seq: msg.seq, x: msg.x, y: msg.y, t: Date.now() }
+          playerSnapshots.set(visitorId, snapshot)
+          broadcastDatagram({ type: "pos", id: visitorId, ...snapshot }, visitorId)
+          continue
         }
 
-        playerSnapshots.set(visitorId, snapshot)
-        broadcastDatagram(
-          {
-            type: "pos",
-            id: visitorId,
-            ...snapshot,
-          },
-          visitorId,
-        )
+        if (!isValidControlsMessage(msg)) continue
+        controls[visitorId] = {
+          seq: msg.seq,
+          keys: msg.keys,
+          pad: msg.pad,
+          t: Date.now(),
+        }
       } catch (e) {
         console.error("Error processing client datagram:", e)
       }
@@ -126,29 +125,49 @@ async function handleSession(session: {
     clearInterval(interval)
     if (session.visitorId) {
       activeSessions.delete(session.visitorId)
-      if (playerSnapshots.delete(session.visitorId)) {
-        broadcastDatagram({ type: "leave", id: session.visitorId }, session.visitorId)
-      }
+      simulation.removePlayer(session.visitorId)
+      playerSnapshots.delete(session.visitorId)
+      broadcastDatagram({ type: "leave", id: session.visitorId })
     }
   }
 
   session.closed.then(cleanup).catch(cleanup)
 }
 
-function isValidPositionMessage(msg: { type?: string; seq?: number; x?: number; y?: number }, lastClientSeq: number) {
+function isValidMessage(msg: any): msg is { type: "controls" | "pos"; seq: number } {
+  return (msg?.type === "controls" || msg?.type === "pos") && Number.isInteger(msg.seq)
+}
+
+function isValidPositionMessage(msg: any): msg is { type: "pos"; seq: number; x: number; y: number } {
+  return msg?.type === "pos" && Number.isFinite(msg.x) && Number.isFinite(msg.y)
+}
+
+function isValidControlsMessage(msg: any): msg is {
+  type: "controls"
+  seq: number
+  keys: Record<string, boolean>
+  pad: { connected: boolean; steer: number; throttle: number; brake: number }
+} {
   return (
-    msg?.type === "pos" &&
+    msg?.type === "controls" &&
     Number.isInteger(msg.seq) &&
-    Number(msg.seq) > lastClientSeq &&
-    Number.isFinite(msg.x) &&
-    Number.isFinite(msg.y)
+    typeof msg.keys === "object" &&
+    msg.keys !== null &&
+    !Array.isArray(msg.keys) &&
+    Object.values(msg.keys).every((value) => typeof value === "boolean") &&
+    typeof msg.pad === "object" &&
+    msg.pad !== null &&
+    typeof msg.pad.connected === "boolean" &&
+    Number.isFinite(msg.pad.steer) &&
+    Number.isFinite(msg.pad.throttle) &&
+    Number.isFinite(msg.pad.brake)
   )
 }
 
-function broadcastDatagram(messageObj: Record<string, unknown>, senderVisitorId: string) {
+function broadcastDatagram(messageObj: Record<string, unknown>, excludedVisitorId?: string) {
   const payload = new TextEncoder().encode(JSON.stringify(messageObj))
-  for (const [id, s] of activeSessions.entries()) {
-    if (id === senderVisitorId) continue
+  for (const [id, s] of activeSessions) {
+    if (id === excludedVisitorId) continue
     try {
       const writer = s.datagrams.writable.getWriter()
       writer.write(payload).catch(() => {})

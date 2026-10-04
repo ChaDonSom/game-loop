@@ -1,5 +1,17 @@
 import RAPIER from "@dimforge/rapier3d-compat"
-import { initRapier, ramp as initRamp, initGround, initWalls, initChassis, initWheels } from "@game-loop/shared"
+import {
+  initRapier,
+  ramp as initRamp,
+  initGround,
+  initWalls,
+  initChassis,
+  initWheels,
+  Pad,
+  Keys,
+  handleSteeringAndDrive,
+} from "@game-loop/shared"
+import { clamp } from "@game-loop/shared"
+import controls from "./controls.js"
 
 /**
  * Just a container function for now to keep things clean; but may actually end up significantly more simplified or
@@ -8,7 +20,7 @@ import { initRapier, ramp as initRamp, initGround, initWalls, initChassis, initW
  * physics-world state broadcasts.
  * TODO: Finish implementing server-side physics loop and state broadcasting.
  */
-export default async function initServerRapier() {
+export default async function initServerRapier(broadcastDatagram: (data: any) => void) {
   // ----------------------------------------------------
   // #region MARK: 1. INITIALIZE RAPIER WASM & PHYSICS WORLD
   // ----------------------------------------------------
@@ -17,69 +29,30 @@ export default async function initServerRapier() {
   initGround(world)
   initWalls(world)
 
-  const chassis = initChassis(world)
-  const vehicle = world.createVehicleController(chassis.body)
-  initWheels(chassis, vehicle)
+  const players = new Map<
+    string,
+    { chassis: ReturnType<typeof initChassis>; vehicle: RAPIER.DynamicRayCastVehicleController }
+  >()
+  let nextSpawnIndex = 0
+  const defaultControls = { seq: 0, keys: {}, pad: { connected: false, steer: 0, throttle: 0, brake: 0 }, t: Date.now() }
 
-  function clamp(value: number, min: number, max: number): number {
-    return Math.min(Math.max(value, min), max)
+  function addPlayer(id: string) {
+    if (players.has(id)) return
+
+    const chassis = initChassis(world, nextSpawnIndex++)
+    const vehicle = world.createVehicleController(chassis.body)
+    initWheels(chassis, vehicle)
+    players.set(id, { chassis, vehicle })
   }
 
-  // #region MARK: 5.3 CONTROLS DURING GAMEPLAY
-  let engineForce = 0
-  const maxEngineForce = 25
-  const minEngineForce = -25
-  let steering = 0
-  const maxSteering = 0.45
-  const minSteering = -0.45
+  function removePlayer(id: string) {
+    const player = players.get(id)
+    if (!player) return
 
-  function handleSteeringAndDrive(
-    dt: number,
-    body: RAPIER.RigidBody,
-    pad: { connected: boolean; steer: number; throttle: number; brake: number },
-    keys: { [key: string]: boolean },
-  ) {
-    const connected = pad.connected
-    const steerInput = clamp(pad.steer, -1, 1)
-    const throttleInput = clamp(pad.throttle, 0, 1)
-    const brakeInput = clamp(pad.brake, 0, 1)
-
-    if (!connected) {
-      // Arrow keys will need the velocity of the body, to determine how quickly to adjust the steering
-      const velocity = body.linvel() // Get the current velocity of the body
-      // Get speed from velocity, velocity is just { x, y, z }
-      const speed = Math.sqrt(velocity.x * velocity.x + velocity.y * velocity.y + velocity.z * velocity.z) // Calculate the speed of the body
-      const steeringAdjustment = 0.07 / (speed + 1) // Adjust steering less based on higher speed
-      if (keys.ArrowLeft || keys.KeyA) steering = Math.min(steering + steeringAdjustment, maxSteering)
-      if (keys.ArrowRight || keys.KeyD) steering = Math.max(steering - steeringAdjustment, minSteering)
-      if (!keys.ArrowLeft && !keys.KeyA && !keys.ArrowRight && !keys.KeyD) {
-        // Gradually reduce steering to zero when no left/right keys are pressed
-        steering *= 0.9 // Gradually reduce steering towards zero
-      }
-
-      // Throttle/brake rear wheels (Index 2 and 3)
-      if (keys.ArrowUp || keys.KeyW) engineForce = Math.min(engineForce + 0.1, maxEngineForce)
-      if (keys.ArrowDown || keys.KeyS) engineForce = Math.max(engineForce - 0.1, minEngineForce)
-      if (!keys.ArrowUp && !keys.KeyW && !keys.ArrowDown && !keys.KeyS) {
-        // Gradually reduce engine force to zero when no throttle or brake keys are pressed
-        engineForce *= 0.9 // Gradually reduce engine force towards zero
-      }
-    } else {
-      // Gamepad controls
-      steering = steerInput * maxSteering * -1
-
-      // Throttle/brake rear wheels (Index 2 and 3)
-      engineForce = throttleInput * maxEngineForce
-      if (brakeInput > 0) engineForce = Math.max(engineForce - brakeInput * maxEngineForce, minEngineForce)
-    }
-
-    vehicle.setWheelEngineForce(2, engineForce)
-    vehicle.setWheelEngineForce(3, engineForce)
-
-    vehicle.setWheelSteering(0, steering)
-    vehicle.setWheelSteering(1, steering)
-
-    return { steering, engineForce }
+    world.removeVehicleController(player.vehicle)
+    world.removeRigidBody(player.chassis.body)
+    players.delete(id)
+    delete controls[id]
   }
 
   // ----------------------------------------------------
@@ -87,14 +60,38 @@ export default async function initServerRapier() {
   // ----------------------------------------------------
 
   function update() {
-    handleSteeringAndDrive(1 / 60, chassis.body, { connected: false, steer: 0, throttle: 0, brake: 0 }, {})
+    for (const [id, player] of players) {
+      const currentControls = controls[id] ?? defaultControls
+      handleSteeringAndDrive(1 / 60, player.chassis.body, currentControls.pad, currentControls.keys, player.vehicle)
+      player.vehicle.updateVehicle(1 / 60)
+    }
 
-    // Step physics forward (1/60s step)
     world.step()
-
-    // AUDITED API: Updates raycast positions, suspension compression, and chassis forces
-    vehicle.updateVehicle(1 / 60)
   }
 
+  function broadcastState() {
+    broadcastDatagram({
+      type: "state",
+      seq: ++stateSeq,
+      players: Array.from(players, ([id, player]) => {
+        const position = player.chassis.body.translation()
+        const rotation = player.chassis.body.rotation()
+        const velocity = player.chassis.body.linvel()
+        return {
+          id,
+          ack: controls[id]?.seq ?? 0,
+          position: { x: position.x, y: position.y, z: position.z },
+          rotation: { x: rotation.x, y: rotation.y, z: rotation.z, w: rotation.w },
+          velocity: { x: velocity.x, y: velocity.y, z: velocity.z },
+        }
+      }),
+      t: Date.now(),
+    })
+  }
+
+  let stateSeq = 0
   setInterval(update, 1000 / 60)
+  setInterval(broadcastState, 1000 / 30)
+
+  return { addPlayer, removePlayer }
 }
