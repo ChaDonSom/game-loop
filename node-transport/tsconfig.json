@@ -8,5 +8,9 @@
     "strict": true,
     "skipLibCheck": true
   },
-  "include": ["*.ts"]
+  "watchOptions": {
+    "watchFile": "fixedPollingInterval",
+    "watchDirectory": "fixedPollingInterval"
+  },
+  "include": ["**/*.ts"]
 }

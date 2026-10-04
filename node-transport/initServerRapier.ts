@@ -1,6 +1,13 @@
 import RAPIER from "@dimforge/rapier3d-compat"
 import { initRapier, ramp as initRamp, initGround, initWalls, initChassis, initWheels } from "@game-loop/shared"
 
+/**
+ * Just a container function for now to keep things clean; but may actually end up significantly more simplified or
+ * something, depending on what all needs to be shared here, vs what all is specific to the server. Server needs to
+ * share the entire physics world code with the clients. Server-only code will be the server loop, and the server
+ * physics-world state broadcasts.
+ * TODO: Finish implementing server-side physics loop and state broadcasting.
+ */
 export default async function initServerRapier() {
   // ----------------------------------------------------
   // #region MARK: 1. INITIALIZE RAPIER WASM & PHYSICS WORLD
