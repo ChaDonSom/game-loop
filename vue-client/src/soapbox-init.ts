@@ -55,10 +55,12 @@ async function init() {
 
   const vehicle = world.createVehicleController(chassis.body)
 
-  const { radius: wheelRadius } = initWheels(chassis, vehicle)
+  const wheelConfig = initWheels(chassis, vehicle)
+  const { radius: wheelRadius } = wheelConfig
   const wheelMeshes = initWheelMeshes(scene, wheelRadius)
-  const remoteChassisMeshes = new Map<string, THREE.Mesh>()
+  const remoteChassisMeshes = new Map<string, { mesh: THREE.Mesh; wheels: THREE.Mesh[] }>()
   const remoteChassisMaterial = new THREE.MeshStandardMaterial({ color: 0x2768c7 })
+  const steeringAxis = new THREE.Vector3(0, 1, 0)
 
   // ----------------------------------------------------
   // #region 2. ANIMATION LOOP
@@ -131,31 +133,46 @@ async function init() {
       if (id === myId.value) continue
       activeRemoteIds.add(id)
 
-      let remoteMesh = remoteChassisMeshes.get(id)
-      if (!remoteMesh) {
-        remoteMesh = new THREE.Mesh(chassisMesh.geometry, remoteChassisMaterial)
+      let remoteVehicle = remoteChassisMeshes.get(id)
+      if (!remoteVehicle) {
+        const remoteMesh = new THREE.Mesh(chassisMesh.geometry, remoteChassisMaterial)
         remoteMesh.castShadow = true
         remoteMesh.position.set(snapshot.position.x, snapshot.position.y, snapshot.position.z)
-        remoteMesh.quaternion.set(
-          snapshot.rotation.x,
-          snapshot.rotation.y,
-          snapshot.rotation.z,
-          snapshot.rotation.w,
-        )
+        remoteMesh.quaternion.set(snapshot.rotation.x, snapshot.rotation.y, snapshot.rotation.z, snapshot.rotation.w)
         scene.add(remoteMesh)
-        remoteChassisMeshes.set(id, remoteMesh)
+
+        const remoteWheelMeshes: THREE.Mesh[] = []
+        for (const [index, offset] of wheelConfig.offset.entries()) {
+          const localWheelMesh = wheelMeshes[index]
+          if (!localWheelMesh) continue
+
+          const remoteWheelMesh = localWheelMesh.clone()
+          remoteWheelMesh.position.set(offset.x, offset.y - wheelConfig.suspensionRestLength, offset.z)
+          remoteWheelMesh.quaternion.identity()
+          remoteMesh.add(remoteWheelMesh)
+          remoteWheelMeshes.push(remoteWheelMesh)
+        }
+
+        remoteVehicle = { mesh: remoteMesh, wheels: remoteWheelMeshes }
+        remoteChassisMeshes.set(id, remoteVehicle)
       }
 
-      remoteMesh.position.lerp(new THREE.Vector3(snapshot.position.x, snapshot.position.y, snapshot.position.z), 0.25)
-      remoteMesh.quaternion.slerp(
+      remoteVehicle.mesh.position.lerp(
+        new THREE.Vector3(snapshot.position.x, snapshot.position.y, snapshot.position.z),
+        0.25,
+      )
+      remoteVehicle.mesh.quaternion.slerp(
         new THREE.Quaternion(snapshot.rotation.x, snapshot.rotation.y, snapshot.rotation.z, snapshot.rotation.w),
         0.25,
       )
+      for (const wheelIndex of [0, 1]) {
+        remoteVehicle.wheels[wheelIndex]?.quaternion.setFromAxisAngle(steeringAxis, snapshot.steering)
+      }
     }
 
-    for (const [id, remoteMesh] of remoteChassisMeshes) {
+    for (const [id, remoteVehicle] of remoteChassisMeshes) {
       if (activeRemoteIds.has(id)) continue
-      scene.remove(remoteMesh)
+      scene.remove(remoteVehicle.mesh)
       remoteChassisMeshes.delete(id)
     }
 

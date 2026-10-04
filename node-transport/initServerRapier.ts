@@ -31,7 +31,7 @@ export default async function initServerRapier(broadcastDatagram: (data: any) =>
 
   const players = new Map<
     string,
-    { chassis: ReturnType<typeof initChassis>; vehicle: RAPIER.DynamicRayCastVehicleController }
+    { chassis: ReturnType<typeof initChassis>; vehicle: RAPIER.DynamicRayCastVehicleController; steering: number }
   >()
   let nextSpawnIndex = 0
   const defaultControls = { seq: 0, keys: {}, pad: { connected: false, steer: 0, throttle: 0, brake: 0 }, t: Date.now() }
@@ -42,7 +42,7 @@ export default async function initServerRapier(broadcastDatagram: (data: any) =>
     const chassis = initChassis(world, nextSpawnIndex++)
     const vehicle = world.createVehicleController(chassis.body)
     initWheels(chassis, vehicle)
-    players.set(id, { chassis, vehicle })
+    players.set(id, { chassis, vehicle, steering: 0 })
   }
 
   function removePlayer(id: string) {
@@ -62,7 +62,13 @@ export default async function initServerRapier(broadcastDatagram: (data: any) =>
   function update() {
     for (const [id, player] of players) {
       const currentControls = controls[id] ?? defaultControls
-      handleSteeringAndDrive(1 / 60, player.chassis.body, currentControls.pad, currentControls.keys, player.vehicle)
+      player.steering = handleSteeringAndDrive(
+        1 / 60,
+        player.chassis.body,
+        currentControls.pad,
+        currentControls.keys,
+        player.vehicle,
+      ).steering
       player.vehicle.updateVehicle(1 / 60)
     }
 
@@ -83,6 +89,7 @@ export default async function initServerRapier(broadcastDatagram: (data: any) =>
           position: { x: position.x, y: position.y, z: position.z },
           rotation: { x: rotation.x, y: rotation.y, z: rotation.z, w: rotation.w },
           velocity: { x: velocity.x, y: velocity.y, z: velocity.z },
+          steering: player.steering,
         }
       }),
       t: Date.now(),

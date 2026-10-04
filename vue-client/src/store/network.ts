@@ -26,6 +26,7 @@ export interface VehicleSnapshot {
   position: Vector3Snapshot
   rotation: RotationSnapshot
   velocity: Vector3Snapshot
+  steering: number
   time: number
 }
 

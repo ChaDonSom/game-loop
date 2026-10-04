@@ -288,6 +288,7 @@ function upsertAuthoritativePlayers(msg: any) {
       position: player.position,
       rotation: player.rotation,
       velocity: player.velocity,
+      steering: Number.isFinite(player.steering) ? player.steering : 0,
       time: performance.now(),
     }
   }
