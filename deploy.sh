@@ -11,5 +11,6 @@ git pull
 
 npm ci
 npm run build
-pm2 restart transport --update-env
+pm2 startOrRestart node-transport/ecosystem.config.cjs --update-env
+pm2 save
 # Nginx takes care of the rest
