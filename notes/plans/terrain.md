@@ -79,9 +79,7 @@ flowchart LR
   classDef existing fill:#eeeeee,stroke:#9e9e9e,color:#616161
 ```
 
-Node names are the planned module and symbol names.
-
-Legend: `notes/diagram-legend.md`. The terrain itself never crosses the network. The one solid edge is the version check (D5): `welcome` now carries a hash of the layout.
+Legend: `notes/diagram-legend.md`. Node names are the planned module and symbol names.
 
 ## How this fits
 
