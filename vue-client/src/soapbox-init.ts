@@ -14,6 +14,7 @@ import {
   initChassis as initChassisMesh,
   initGround as initGroundMesh,
   initLights,
+  followWithSun,
   initRamp as initRampMesh,
   initRenderer,
   initScene,
@@ -39,7 +40,7 @@ async function init() {
 
   const renderer = initRenderer(container)
 
-  initLights(scene)
+  const sun = initLights(scene)
 
   const ramp = createRamp(world)
   initRampMesh(scene, ramp)
@@ -183,6 +184,7 @@ async function init() {
     chassisMesh.quaternion.set(cRot.x, cRot.y, cRot.z, cRot.w)
 
     updateCamera(chassisMesh, camera)
+    followWithSun(sun, chassisMesh.position)
 
     moveWheelMeshesToWorldCoordinates(vehicle, wheelMeshes, { body: chassis.body, mesh: chassisMesh }, steering)
 

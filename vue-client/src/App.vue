@@ -9,7 +9,7 @@ import MyVisitorId from "@/components/MyVisitorId.vue"
       <MyVisitorId />
       <Datagrams />
     </div>
-    <p>Simple soapbox cars in a shared physics environment.</p>
+    <p style="color: #1a1a24">Simple soapbox cars in a shared physics environment.</p>
   </div>
 </template>
 

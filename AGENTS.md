@@ -22,17 +22,22 @@ npm workspaces. Build order: `shared` → `node-transport` → `vue-client`.
 ## Build and check
 
 - Install: `npm ci --ignore-scripts`. The build does not need the native WebTransport install step.
-- Build and type-check all: `npm run build`. CI (`.github/workflows/build.yml`) runs the same two commands on each PR.
+- Build and type-check all: `npm run build`. No CI runs on PRs. Run both commands before you push.
 - To run the server locally, you need the native step: use plain `npm ci`.
 
 ## Ship a change
 
+`soapbox-car` is a permanent branch off `master`. It is the base for all soapbox-car work. Do not target `master`.
+
 1. Make a branch from `soapbox-car`. Do not push to `soapbox-car` directly: `deploy.sh` on the droplet runs `git pull`.
 2. Open a PR against `soapbox-car`. Copilot reviews it.
 3. Fix review findings. Reply to each thread and resolve it.
-4. The owner merges and deploys with `deploy-local.sh`.
+4. The owner merges into `soapbox-car`. An agent's work ends at a merge-ready PR.
+5. Deploy is a separate step. The owner deploys by hand over SSH.
 
 ## Deploy (reference)
+
+Agents do not deploy.
 
 - `deploy-local.sh` connects with SSH to the droplet and runs `deploy.sh`.
 - `deploy.sh`: `git pull`, `npm ci`, `npm run build`, then pm2 restarts `node-transport` (`ecosystem.config.cjs`).
