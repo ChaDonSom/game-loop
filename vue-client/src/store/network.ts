@@ -1,4 +1,5 @@
 import { computed, ref } from "vue"
+import type { Quaternion, Vector3 } from "@game-loop/shared"
 
 export interface PlayerSnapshot {
   x: number
@@ -6,26 +7,13 @@ export interface PlayerSnapshot {
   time: number
 }
 
-export interface Vector3Snapshot {
-  x: number
-  y: number
-  z: number
-}
-
-export interface RotationSnapshot {
-  x: number
-  y: number
-  z: number
-  w: number
-}
-
 export interface VehicleSnapshot {
   id: string
   seq: number
   ack: number
-  position: Vector3Snapshot
-  rotation: RotationSnapshot
-  velocity: Vector3Snapshot
+  position: Vector3
+  rotation: Quaternion
+  velocity: Vector3
   steering: number
   time: number
 }

@@ -5,6 +5,15 @@ import ensureLocalCert from "./ensureLocalCert.js"
 import crypto from "crypto"
 import initServerRapier from "./initServerRapier.js"
 import controls from "./controls.js"
+import {
+  decodeMessage,
+  encodeMessage,
+  isClientControlsMessage,
+  isClientPositionMessage,
+  type PositionSnapshot,
+  type ServerDatagramMessage,
+  type ServerStreamMessage,
+} from "@game-loop/shared"
 
 const CERT_PATH = process.env.CERT_PATH ?? ""
 const PRIV_KEY_PATH = process.env.PRIV_KEY_PATH ?? ""
@@ -33,7 +42,7 @@ const server = new Http3Server({
   privKey: process.env.PRIV_KEY_PATH ? readFileSync(PRIV_KEY_PATH) : undefined,
 })
 const activeSessions = new Map()
-const playerSnapshots = new Map<string, { seq: number; x: number; y: number; t: number }>()
+const playerSnapshots = new Map<string, PositionSnapshot>()
 
 const sessionStream = server.sessionStream("/wt")
 server.startServer()
@@ -88,18 +97,19 @@ async function handleSession(session: {
       const { done, value } = await reader.read()
       if (done) break
       try {
-        const msg = JSON.parse(new TextDecoder().decode(value))
-        if (!isValidMessage(msg) || msg.seq <= lastClientSeq) continue
+        const msg = decodeMessage(value)
+        const isPosition = isClientPositionMessage(msg)
+        if (!isPosition && !isClientControlsMessage(msg)) continue
+        if (msg.seq <= lastClientSeq) continue // drop duplicate or out-of-order datagram
         lastClientSeq = msg.seq
 
-        if (isValidPositionMessage(msg)) {
-          const snapshot = { seq: msg.seq, x: msg.x, y: msg.y, t: Date.now() }
+        if (isPosition) {
+          const snapshot: PositionSnapshot = { seq: msg.seq, x: msg.x, y: msg.y, t: Date.now() }
           playerSnapshots.set(visitorId, snapshot)
           broadcastDatagram({ type: "pos", id: visitorId, ...snapshot }, visitorId)
           continue
         }
 
-        if (!isValidControlsMessage(msg)) continue
         controls[visitorId] = {
           seq: msg.seq,
           keys: msg.keys,
@@ -115,7 +125,7 @@ async function handleSession(session: {
   let count = 0
   const interval = setInterval(() => {
     count++
-    const payload = new TextEncoder().encode(JSON.stringify({ type: "count", seq: count, count, t: Date.now() }))
+    const payload = encodeMessage({ type: "count", seq: count, count, t: Date.now() })
     const writer = session.datagrams.writable.getWriter()
     writer.write(payload).catch(() => {}) // drop silently if it fails, this is the point for unreliable datagrams
     writer.releaseLock()
@@ -134,38 +144,8 @@ async function handleSession(session: {
   session.closed.then(cleanup).catch(cleanup)
 }
 
-function isValidMessage(msg: any): msg is { type: "controls" | "pos"; seq: number } {
-  return (msg?.type === "controls" || msg?.type === "pos") && Number.isInteger(msg.seq)
-}
-
-function isValidPositionMessage(msg: any): msg is { type: "pos"; seq: number; x: number; y: number } {
-  return msg?.type === "pos" && Number.isFinite(msg.x) && Number.isFinite(msg.y)
-}
-
-function isValidControlsMessage(msg: any): msg is {
-  type: "controls"
-  seq: number
-  keys: Record<string, boolean>
-  pad: { connected: boolean; steer: number; throttle: number; brake: number }
-} {
-  return (
-    msg?.type === "controls" &&
-    Number.isInteger(msg.seq) &&
-    typeof msg.keys === "object" &&
-    msg.keys !== null &&
-    !Array.isArray(msg.keys) &&
-    Object.values(msg.keys).every((value) => typeof value === "boolean") &&
-    typeof msg.pad === "object" &&
-    msg.pad !== null &&
-    typeof msg.pad.connected === "boolean" &&
-    Number.isFinite(msg.pad.steer) &&
-    Number.isFinite(msg.pad.throttle) &&
-    Number.isFinite(msg.pad.brake)
-  )
-}
-
-function broadcastDatagram(messageObj: Record<string, unknown>, excludedVisitorId?: string) {
-  const payload = new TextEncoder().encode(JSON.stringify(messageObj))
+function broadcastDatagram(message: ServerDatagramMessage, excludedVisitorId?: string) {
+  const payload = encodeMessage(message)
   for (const [id, s] of activeSessions) {
     if (id === excludedVisitorId) continue
     try {
@@ -180,11 +160,11 @@ function broadcastDatagram(messageObj: Record<string, unknown>, excludedVisitorI
 
 async function sendJsonMessage(
   session: { createUnidirectionalStream: () => Promise<WritableStream<Uint8Array>> },
-  messageObj: Record<string, unknown>,
+  message: ServerStreamMessage,
 ) {
   const stream = await session.createUnidirectionalStream()
   const writer = stream.getWriter()
-  await writer.write(new TextEncoder().encode(JSON.stringify(messageObj)))
+  await writer.write(encodeMessage(message))
   await writer.close()
   writer.releaseLock()
 }

@@ -6,10 +6,9 @@ import {
   remotePlayers,
   serverCount,
   type PlayerSnapshot,
-  type RotationSnapshot,
-  type Vector3Snapshot,
   type VehicleSnapshot,
 } from "@/store/network"
+import { decodeMessage, encodeMessage, isQuaternion, isVector3, type ClientMessage } from "@game-loop/shared"
 import keys from "@/input/keys"
 import getGamePadState from "@/input/pad"
 
@@ -75,8 +74,7 @@ async function startDatagramReader(transport: WebTransport) {
       if (done) break
 
       try {
-        const msg = JSON.parse(new TextDecoder().decode(value))
-        handleDatagram(msg)
+        handleDatagram(decodeMessage(value))
       } catch (err) {
         console.error("Invalid datagram packet:", err)
       }
@@ -152,11 +150,9 @@ async function handleIncomingStream(stream: ReadableStream<Uint8Array>) {
       offset += chunk.length
     }
 
-    const text = new TextDecoder().decode(merged)
-    console.log("text :", text)
-    if (!text) return
+    if (merged.length === 0) return
 
-    const msg = JSON.parse(text)
+    const msg = decodeMessage(merged) as any
     if (msg.type === "welcome") {
       console.log("Received welcome message:", msg)
       myId.value = msg.yourId
@@ -192,7 +188,7 @@ async function startNetLoop(transport: WebTransport) {
       if (!networkUpdate) continue
 
       clientSeq++
-      const payload = {
+      const payload: ClientMessage = {
         type: "pos",
         seq: clientSeq,
         x: networkUpdate.x,
@@ -200,7 +196,7 @@ async function startNetLoop(transport: WebTransport) {
       }
 
       try {
-        await writer.write(new TextEncoder().encode(JSON.stringify(payload)))
+        await writer.write(encodeMessage(payload))
       } catch (err) {
         console.error("Error sending datagram:", err)
         handleDisconnect()
@@ -212,14 +208,12 @@ async function startNetLoop(transport: WebTransport) {
       clientSeq++
       try {
         await writer.write(
-          new TextEncoder().encode(
-            JSON.stringify({
-              type: "controls",
-              seq: clientSeq,
-              keys: latestControls.keys,
-              pad: latestControls.pad,
-            }),
-          ),
+          encodeMessage({
+            type: "controls",
+            seq: clientSeq,
+            keys: latestControls.keys,
+            pad: latestControls.pad,
+          }),
         )
       } catch (err) {
         console.error("Error sending controls:", err)
@@ -274,9 +268,9 @@ function upsertAuthoritativePlayers(msg: any) {
       !player ||
       typeof player.id !== "string" ||
       !Number.isInteger(player.ack) ||
-      !isVector3Snapshot(player.position) ||
-      !isRotationSnapshot(player.rotation) ||
-      !isVector3Snapshot(player.velocity)
+      !isVector3(player.position) ||
+      !isQuaternion(player.rotation) ||
+      !isVector3(player.velocity)
     ) {
       continue
     }
@@ -294,20 +288,6 @@ function upsertAuthoritativePlayers(msg: any) {
   }
 
   authoritativePlayers.value = snapshots
-}
-
-function isVector3Snapshot(value: any): value is Vector3Snapshot {
-  return value && Number.isFinite(value.x) && Number.isFinite(value.y) && Number.isFinite(value.z)
-}
-
-function isRotationSnapshot(value: any): value is RotationSnapshot {
-  return (
-    value &&
-    Number.isFinite(value.x) &&
-    Number.isFinite(value.y) &&
-    Number.isFinite(value.z) &&
-    Number.isFinite(value.w)
-  )
 }
 
 function handleDisconnect() {

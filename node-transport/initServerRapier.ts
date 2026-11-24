@@ -9,6 +9,7 @@ import {
   Pad,
   Keys,
   handleSteeringAndDrive,
+  type VehicleStateMessage,
 } from "@game-loop/shared"
 import { clamp } from "@game-loop/shared"
 import controls from "./controls.js"
@@ -20,7 +21,7 @@ import controls from "./controls.js"
  * physics-world state broadcasts.
  * TODO: Finish implementing server-side physics loop and state broadcasting.
  */
-export default async function initServerRapier(broadcastDatagram: (data: any) => void) {
+export default async function initServerRapier(broadcastDatagram: (message: VehicleStateMessage) => void) {
   // ----------------------------------------------------
   // #region MARK: 1. INITIALIZE RAPIER WASM & PHYSICS WORLD
   // ----------------------------------------------------
