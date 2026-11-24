@@ -93,6 +93,7 @@ export default async function initServerRapier(broadcastDatagram: (message: Vehi
   }
 
   function broadcastState() {
+    const now = Date.now()
     broadcastDatagram({
       type: "state",
       seq: ++stateSeq,
@@ -100,16 +101,18 @@ export default async function initServerRapier(broadcastDatagram: (message: Vehi
         const position = player.chassis.body.translation()
         const rotation = player.chassis.body.rotation()
         const velocity = player.chassis.body.linvel()
+        const playerControls = controls[id]
         return {
           id,
-          ack: controls[id]?.seq ?? 0,
+          ack: playerControls?.seq ?? 0,
+          ackAgeMs: playerControls ? Math.max(0, now - playerControls.t) : 0,
           position: { x: position.x, y: position.y, z: position.z },
           rotation: { x: rotation.x, y: rotation.y, z: rotation.z, w: rotation.w },
           velocity: { x: velocity.x, y: velocity.y, z: velocity.z },
           steering: player.steering,
         }
       }),
-      t: Date.now(),
+      t: now,
     })
   }
 

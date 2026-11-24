@@ -27,6 +27,11 @@ export type VehicleState = {
   id: string
   /** Last client `controls` seq the server applied for this player. Used for client reconciliation. */
   ack: number
+  /**
+   * Milliseconds from the server receiving `ack` to taking this snapshot. The client subtracts it from its
+   * send-to-now time for `ack`, so it knows how far this snapshot lags its own prediction.
+   */
+  ackAgeMs: number
   position: Vector3
   rotation: Quaternion
   velocity: Vector3
@@ -129,6 +134,8 @@ function isVehicleState(value: unknown): value is VehicleState {
     isObject(value) &&
     typeof value.id === "string" &&
     Number.isInteger(value.ack) &&
+    Number.isFinite(value.ackAgeMs) &&
+    value.ackAgeMs >= 0 &&
     isVector3(value.position) &&
     isQuaternion(value.rotation) &&
     isVector3(value.velocity) &&

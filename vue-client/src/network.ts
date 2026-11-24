@@ -317,12 +317,15 @@ function syncHotState() {
 }
 
 /**
- * Time from sending `controls` datagram `seq` to now, in seconds. A server state that acks `seq` shows the car about
- * this far in the past. `null` if the seq is unknown.
+ * How far a server state lags this client's prediction, in seconds. The server state at time T shows the inputs the
+ * client sent one uplink delay before T. So the lag is the full send-to-now time of `ack`, minus the time the server
+ * held `ack` before it took the snapshot (`ackAgeMs`). That is one round trip plus the local wait before processing.
+ * `null` if the seq is unknown.
  */
-export function secondsSinceControlsSent(seq: number): number | null {
-  const sentAt = controlsSentAt.get(seq)
-  return sentAt === undefined ? null : (performance.now() - sentAt) / 1000
+export function stateLagSeconds(ack: number, ackAgeMs: number): number | null {
+  const sentAt = controlsSentAt.get(ack)
+  if (sentAt === undefined) return null
+  return Math.max(0, performance.now() - sentAt - ackAgeMs) / 1000
 }
 
 export function queueNetworkUpdate(update: PositionInput) {

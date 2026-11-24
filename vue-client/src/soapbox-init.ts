@@ -9,6 +9,7 @@ import {
   initWheels,
   handleSteeringAndDrive,
   resetChassisToSpawn,
+  resetDriveState,
 } from "@game-loop/shared"
 import {
   initCamera,
@@ -26,7 +27,7 @@ import getGamePadState from "@/input/pad"
 import keys from "@/input/keys"
 import { moveWheelMeshesToWorldCoordinates } from "@/three/wheels"
 import updateCamera from "@/three/camera"
-import { queueControls, secondsSinceControlsSent } from "@/network"
+import { queueControls, stateLagSeconds } from "@/network"
 import { authoritativePlayers, myId, mySpawnIndex } from "@/store/network"
 import reconcile from "@/physics/reconcile"
 
@@ -73,7 +74,8 @@ async function init() {
   let accumulator = 0
   let lastReconciledAck = 0
   let steering = 0
-  let appliedSpawnIndex: number | null = null
+  /** Session (`myId`) whose spawn the local car was last reset to. Each `welcome` gives a new id. */
+  let spawnedForId: string | null = null
 
   function animate(currentTime: number) {
     requestAnimationFrame(animate)
@@ -81,10 +83,12 @@ async function init() {
     lastFrameTime = currentTime
     accumulator += frameDt
 
-    // Start where the server put this car. The client does not know its slot until `welcome` arrives.
-    if (mySpawnIndex.value !== null && mySpawnIndex.value !== appliedSpawnIndex) {
+    // Start where the server put this car. The client does not know its slot until `welcome` arrives. Reset once per
+    // session: a reconnect can get the same slot again, and the server car then starts fresh at it.
+    if (myId.value !== null && mySpawnIndex.value !== null && myId.value !== spawnedForId) {
       resetChassisToSpawn(chassis.body, mySpawnIndex.value)
-      appliedSpawnIndex = mySpawnIndex.value
+      resetDriveState(vehicle)
+      spawnedForId = myId.value
       lastReconciledAck = 0
     }
 
@@ -101,8 +105,7 @@ async function init() {
 
     const localSnapshot = myId.value ? authoritativePlayers.value[myId.value] : undefined
     if (localSnapshot && localSnapshot.ack > lastReconciledAck) {
-      // The server state reflects controls up to `ack`. It is about one round trip old.
-      const lag = secondsSinceControlsSent(localSnapshot.ack) ?? 0
+      const lag = stateLagSeconds(localSnapshot.ack, localSnapshot.ackAgeMs) ?? 0
       reconcile(chassis.body, localSnapshot, lag)
       lastReconciledAck = localSnapshot.ack
     }
