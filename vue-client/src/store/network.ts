@@ -19,6 +19,8 @@ export interface VehicleSnapshot {
 }
 
 export const myId = ref<string | null>(null)
+/** Spawn slot the server gave this client in `welcome`. `null` until it arrives. */
+export const mySpawnIndex = ref<number | null>(null)
 export const myVisitorId = computed(() => myId.value)
 export const connectionStatus = ref<"disconnected" | "connecting" | "connected">("disconnected")
 export const serverCount = ref<number | null>(null)

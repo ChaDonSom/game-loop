@@ -45,8 +45,8 @@ export type ClientMessage = ClientPositionMessage | ClientControlsMessage
 // #region MARK: Server -> client messages
 // ----------------------------------------------------
 
-/** Stream. Tells a new client its assigned id. */
-export type WelcomeMessage = { type: "welcome"; yourId: string }
+/** Stream. Tells a new client its assigned id and spawn slot (see `spawnPose`). */
+export type WelcomeMessage = { type: "welcome"; yourId: string; spawnIndex: number }
 /** Stream. Last known positions of the players already connected when a client joins. */
 export type InitialPositionsMessage = { type: "state"; players: Array<{ id: string } & PositionSnapshot> }
 /** Datagram. Once-per-second heartbeat. */
@@ -141,7 +141,7 @@ export function isServerStreamMessage(msg: unknown): msg is ServerStreamMessage 
   if (!isObject(msg)) return false
   switch (msg.type) {
     case "welcome":
-      return typeof msg.yourId === "string"
+      return typeof msg.yourId === "string" && Number.isInteger(msg.spawnIndex) && msg.spawnIndex >= 0
     case "state":
       return (
         Array.isArray(msg.players) &&

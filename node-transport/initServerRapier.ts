@@ -32,18 +32,34 @@ export default async function initServerRapier(broadcastDatagram: (message: Vehi
 
   const players = new Map<
     string,
-    { chassis: ReturnType<typeof initChassis>; vehicle: RAPIER.DynamicRayCastVehicleController; steering: number }
+    {
+      chassis: ReturnType<typeof initChassis>
+      vehicle: RAPIER.DynamicRayCastVehicleController
+      steering: number
+      spawnIndex: number
+    }
   >()
-  let nextSpawnIndex = 0
   const defaultControls = { seq: 0, keys: {}, pad: { connected: false, steer: 0, throttle: 0, brake: 0 }, t: Date.now() }
 
-  function addPlayer(id: string) {
-    if (players.has(id)) return
+  /** Lowest spawn slot no connected player holds. A slot frees up when its player leaves. */
+  function freeSpawnIndex() {
+    const taken = new Set(Array.from(players.values(), (player) => player.spawnIndex))
+    let index = 0
+    while (taken.has(index)) index++
+    return index
+  }
 
-    const chassis = initChassis(world, nextSpawnIndex++)
+  /** Adds a player's car and returns its spawn slot. The client needs the slot to start its car at the same pose. */
+  function addPlayer(id: string) {
+    const existing = players.get(id)
+    if (existing) return existing.spawnIndex
+
+    const spawnIndex = freeSpawnIndex()
+    const chassis = initChassis(world, spawnIndex)
     const vehicle = world.createVehicleController(chassis.body)
     initWheels(chassis, vehicle)
-    players.set(id, { chassis, vehicle, steering: 0 })
+    players.set(id, { chassis, vehicle, steering: 0, spawnIndex })
+    return spawnIndex
   }
 
   function removePlayer(id: string) {
@@ -98,7 +114,27 @@ export default async function initServerRapier(broadcastDatagram: (message: Vehi
   }
 
   let stateSeq = 0
-  setInterval(update, 1000 / 60)
+
+  // Fixed timestep. Node truncates `setInterval(fn, 1000 / 60)` to 16 ms (62.5 Hz), so one physics step per callback
+  // made the server simulation run faster than the clients' 60 Hz. Step by elapsed time instead.
+  const fixedDtMs = 1000 / 60
+  const maxStepsPerTick = 5
+  let lastTickTime = performance.now()
+  let accumulatorMs = 0
+  setInterval(() => {
+    const now = performance.now()
+    accumulatorMs += now - lastTickTime
+    lastTickTime = now
+
+    let steps = 0
+    while (accumulatorMs >= fixedDtMs && steps < maxStepsPerTick) {
+      update()
+      accumulatorMs -= fixedDtMs
+      steps++
+    }
+    // After a long stall, drop the backlog instead of fast-forwarding the world.
+    if (steps === maxStepsPerTick) accumulatorMs = 0
+  }, 4)
   setInterval(broadcastState, 1000 / 30)
 
   return { addPlayer, removePlayer }

@@ -3,6 +3,7 @@ import {
   authoritativePlayers,
   connectionStatus,
   myId,
+  mySpawnIndex,
   remotePlayers,
   serverCount,
   type PlayerSnapshot,
@@ -41,6 +42,9 @@ let clientSeq = 0
 let lastCountSeq = -1
 let lastStateSeq = -1
 const lastPlayerSeq = new Map<string, number>()
+/** Send time (performance.now) of recent `controls` datagrams, by seq. Used to measure round-trip time. */
+const controlsSentAt = new Map<number, number>()
+const MAX_TRACKED_CONTROLS = 120
 // survives HMR reloads so we don't re-lock the transport's streams a second time
 let initialized = import.meta.hot?.data.initialized ?? false
 let reconnectAttempts = import.meta.hot?.data.reconnectAttempts ?? 0
@@ -168,6 +172,7 @@ async function handleIncomingStream(stream: ReadableStream<Uint8Array>) {
       case "welcome":
         console.log("Received welcome message:", msg)
         myId.value = msg.yourId
+        mySpawnIndex.value = msg.spawnIndex
         return
       case "state":
         for (const player of msg.players) {
@@ -215,6 +220,11 @@ async function startNetLoop(transport: WebTransport) {
 
     if (latestControls && !closed) {
       clientSeq++
+      controlsSentAt.set(clientSeq, performance.now())
+      if (controlsSentAt.size > MAX_TRACKED_CONTROLS) {
+        const oldestSeq = controlsSentAt.keys().next().value
+        if (oldestSeq !== undefined) controlsSentAt.delete(oldestSeq)
+      }
       try {
         await writer.write(
           encodeMessage({
@@ -304,6 +314,15 @@ function syncHotState() {
   import.meta.hot.data.initialized = initialized
   import.meta.hot.data.reconnectAttempts = reconnectAttempts
   import.meta.hot.data.reconnectTimer = reconnectTimer
+}
+
+/**
+ * Time from sending `controls` datagram `seq` to now, in seconds. A server state that acks `seq` shows the car about
+ * this far in the past. `null` if the seq is unknown.
+ */
+export function secondsSinceControlsSent(seq: number): number | null {
+  const sentAt = controlsSentAt.get(seq)
+  return sentAt === undefined ? null : (performance.now() - sentAt) / 1000
 }
 
 export function queueNetworkUpdate(update: PositionInput) {
