@@ -6,10 +6,18 @@ import {
   remotePlayers,
   serverCount,
   type PlayerSnapshot,
-  type RotationSnapshot,
-  type Vector3Snapshot,
   type VehicleSnapshot,
 } from "@/store/network"
+import {
+  decodeMessage,
+  encodeMessage,
+  isServerDatagramMessage,
+  isServerStreamMessage,
+  type ClientMessage,
+  type PositionBroadcastMessage,
+  type ServerDatagramMessage,
+  type VehicleStateMessage,
+} from "@game-loop/shared"
 import keys from "@/input/keys"
 import getGamePadState from "@/input/pad"
 
@@ -75,7 +83,11 @@ async function startDatagramReader(transport: WebTransport) {
       if (done) break
 
       try {
-        const msg = JSON.parse(new TextDecoder().decode(value))
+        const msg = decodeMessage(value)
+        if (!isServerDatagramMessage(msg)) {
+          console.warn("Dropped malformed datagram:", msg)
+          continue
+        }
         handleDatagram(msg)
       } catch (err) {
         console.error("Invalid datagram packet:", err)
@@ -88,33 +100,25 @@ async function startDatagramReader(transport: WebTransport) {
   }
 }
 
-function handleDatagram(msg: any) {
-  if (!msg || typeof msg !== "object") return
-
-  if (msg.type === "count") {
-    if (typeof msg.seq === "number") {
+function handleDatagram(msg: ServerDatagramMessage) {
+  switch (msg.type) {
+    case "count":
       if (msg.seq <= lastCountSeq) return // drop duplicate or out-of-order count
       lastCountSeq = msg.seq
-    }
-    serverCount.value = msg.count
-    return
-  }
-
-  if (msg.type === "pos") {
-    if (typeof msg.id !== "string" || msg.id === myId.value) return // ignore own position
-    upsertRemotePlayer(msg)
-    return
-  }
-
-  if (msg.type === "state") {
-    upsertAuthoritativePlayers(msg)
-    return
-  }
-
-  if (msg.type === "leave" && typeof msg.id === "string") {
-    delete remotePlayers.value[msg.id]
-    delete authoritativePlayers.value[msg.id]
-    lastPlayerSeq.delete(msg.id)
+      serverCount.value = msg.count
+      return
+    case "pos":
+      if (msg.id === myId.value) return // ignore own position
+      upsertRemotePlayer(msg)
+      return
+    case "state":
+      upsertAuthoritativePlayers(msg)
+      return
+    case "leave":
+      delete remotePlayers.value[msg.id]
+      delete authoritativePlayers.value[msg.id]
+      lastPlayerSeq.delete(msg.id)
+      return
   }
 }
 
@@ -152,23 +156,24 @@ async function handleIncomingStream(stream: ReadableStream<Uint8Array>) {
       offset += chunk.length
     }
 
-    const text = new TextDecoder().decode(merged)
-    console.log("text :", text)
-    if (!text) return
+    if (merged.length === 0) return
 
-    const msg = JSON.parse(text)
-    if (msg.type === "welcome") {
-      console.log("Received welcome message:", msg)
-      myId.value = msg.yourId
+    const msg = decodeMessage(merged)
+    if (!isServerStreamMessage(msg)) {
+      console.warn("Dropped malformed stream message:", msg)
       return
     }
 
-    if (msg.type === "state" && Array.isArray(msg.players)) {
-      for (const player of msg.players) {
-        if (player && typeof player.id === "string" && player.id !== myId.value) {
-          upsertRemotePlayer(player)
+    switch (msg.type) {
+      case "welcome":
+        console.log("Received welcome message:", msg)
+        myId.value = msg.yourId
+        return
+      case "state":
+        for (const player of msg.players) {
+          if (player.id !== myId.value) upsertRemotePlayer(player)
         }
-      }
+        return
     }
   } catch (err) {
     console.error("Error reading incoming stream:", err)
@@ -192,7 +197,7 @@ async function startNetLoop(transport: WebTransport) {
       if (!networkUpdate) continue
 
       clientSeq++
-      const payload = {
+      const payload: ClientMessage = {
         type: "pos",
         seq: clientSeq,
         x: networkUpdate.x,
@@ -200,7 +205,7 @@ async function startNetLoop(transport: WebTransport) {
       }
 
       try {
-        await writer.write(new TextEncoder().encode(JSON.stringify(payload)))
+        await writer.write(encodeMessage(payload))
       } catch (err) {
         console.error("Error sending datagram:", err)
         handleDisconnect()
@@ -212,14 +217,12 @@ async function startNetLoop(transport: WebTransport) {
       clientSeq++
       try {
         await writer.write(
-          new TextEncoder().encode(
-            JSON.stringify({
-              type: "controls",
-              seq: clientSeq,
-              keys: latestControls.keys,
-              pad: latestControls.pad,
-            }),
-          ),
+          encodeMessage({
+            type: "controls",
+            seq: clientSeq,
+            keys: latestControls.keys,
+            pad: latestControls.pad,
+          }),
         )
       } catch (err) {
         console.error("Error sending controls:", err)
@@ -234,12 +237,8 @@ async function startNetLoop(transport: WebTransport) {
   void loop()
 }
 
-function upsertRemotePlayer(msg: { id: string; seq: unknown; x: unknown; y: unknown }) {
-  if (!Number.isInteger(msg.seq) || !Number.isFinite(msg.x) || !Number.isFinite(msg.y)) return
-
-  const seq = Number(msg.seq)
-  const x = Number(msg.x)
-  const y = Number(msg.y)
+function upsertRemotePlayer(msg: Pick<PositionBroadcastMessage, "id" | "seq" | "x" | "y">) {
+  const { seq, x, y } = msg
   const prevSeq = lastPlayerSeq.get(msg.id) ?? -1
   if (seq <= prevSeq) return // drop duplicate or out-of-order player update
   lastPlayerSeq.set(msg.id, seq)
@@ -264,50 +263,17 @@ function upsertRemotePlayer(msg: { id: string; seq: unknown; x: unknown; y: unkn
   }
 }
 
-function upsertAuthoritativePlayers(msg: any) {
-  if (!Number.isInteger(msg.seq) || msg.seq <= lastStateSeq || !Array.isArray(msg.players)) return
+function upsertAuthoritativePlayers(msg: VehicleStateMessage) {
+  if (msg.seq <= lastStateSeq) return // drop duplicate or out-of-order state
   lastStateSeq = msg.seq
 
   const snapshots: Record<string, VehicleSnapshot> = {}
+  const time = performance.now()
   for (const player of msg.players) {
-    if (
-      !player ||
-      typeof player.id !== "string" ||
-      !Number.isInteger(player.ack) ||
-      !isVector3Snapshot(player.position) ||
-      !isRotationSnapshot(player.rotation) ||
-      !isVector3Snapshot(player.velocity)
-    ) {
-      continue
-    }
-
-    snapshots[player.id] = {
-      id: player.id,
-      seq: msg.seq,
-      ack: player.ack,
-      position: player.position,
-      rotation: player.rotation,
-      velocity: player.velocity,
-      steering: Number.isFinite(player.steering) ? player.steering : 0,
-      time: performance.now(),
-    }
+    snapshots[player.id] = { ...player, seq: msg.seq, time }
   }
 
   authoritativePlayers.value = snapshots
-}
-
-function isVector3Snapshot(value: any): value is Vector3Snapshot {
-  return value && Number.isFinite(value.x) && Number.isFinite(value.y) && Number.isFinite(value.z)
-}
-
-function isRotationSnapshot(value: any): value is RotationSnapshot {
-  return (
-    value &&
-    Number.isFinite(value.x) &&
-    Number.isFinite(value.y) &&
-    Number.isFinite(value.z) &&
-    Number.isFinite(value.w)
-  )
 }
 
 function handleDisconnect() {
