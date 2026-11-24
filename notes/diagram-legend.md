@@ -14,6 +14,14 @@ Each workspace is one subgraph. Put every node in the subgraph of the workspace 
 | `server` | `node-transport/` |
 | `client` | `vue-client/` |
 
+## Levels
+
+Every node names real code: a workspace, a module (file), or an exported symbol. Use the exact name, so you can go from the diagram to the code.
+
+Levels go from workspace, to module, to function. A node at one level can open into its own diagram one level down. A diagram can also zoom out one level up.
+
+The diagram follows the file structure. If a correct diagram does not fit the file structure, treat it as a code smell. Fix the code structure, not the diagram.
+
 ## What a node is: shape
 
 | Shape | Mermaid | Meaning |

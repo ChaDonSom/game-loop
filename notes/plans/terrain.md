@@ -1,6 +1,8 @@
 # Plan: terrain (roadmap step 2)
 
-Status: **draft. Waiting for owner review.** Comment on any line. Ask anything.
+Status: **draft, revision 2. Waiting for owner review.** Comment on any line. Ask anything.
+
+Revision 2 changes (from your first review): car-scaled bump sizes, bump size and placement grouped, the version check moved into this step, a new section on later tuning, and the diagram updated.
 
 ## Goal
 
@@ -16,10 +18,15 @@ Not in this step: full tracks, banked ovals, hills across the whole arena. Those
 
 ## What's new
 
+Two diagrams, one per change. Together they would need 9 nodes, over the limit of 8.
+
+**Terrain build.** Server and client build the same terrain from one data list.
+
 ```mermaid
 flowchart LR
   subgraph shared
-    layout[(terrain layout)]
+    layout[(terrain/layout)]
+    dims[(vehicle/dimensions)]
     physics[buildTerrainPhysics]
     grip[applySurfaceGrip]
   end
@@ -37,14 +44,44 @@ flowchart LR
   init -.-> meshes
   physics -.-> layout
   meshes -.-> layout
-  class layout,physics,grip,meshes new
+  layout -.-> dims
+  class layout,dims,physics,grip,meshes new
   class srv,init changed
   classDef new fill:#d9f2d9,stroke:#2e7d32,stroke-width:2px,color:#1b3d1d
   classDef changed fill:#fff4d6,stroke:#b7791f,stroke-width:2px,color:#4a3510
   classDef existing fill:#eeeeee,stroke:#9e9e9e,color:#616161
 ```
 
-Legend: `notes/diagram-legend.md`. No solid edge: terrain never crosses the network.
+No solid edge: the terrain never crosses the network.
+
+**Version check (D5).** The server tells each client which layout it runs.
+
+```mermaid
+flowchart LR
+  subgraph shared
+    ver[worldVersion]
+    valid[isServerStreamMessage]
+  end
+  subgraph server
+    srv[server.ts]
+  end
+  subgraph client
+    net[network.ts]
+  end
+  srv -->|welcome| net
+  srv -.-> ver
+  net -.-> ver
+  net -.-> valid
+  class ver new
+  class srv,net,valid changed
+  classDef new fill:#d9f2d9,stroke:#2e7d32,stroke-width:2px,color:#1b3d1d
+  classDef changed fill:#fff4d6,stroke:#b7791f,stroke-width:2px,color:#4a3510
+  classDef existing fill:#eeeeee,stroke:#9e9e9e,color:#616161
+```
+
+Node names are the planned module and symbol names.
+
+Legend: `notes/diagram-legend.md`. The terrain itself never crosses the network. The one solid edge is the version check (D5): `welcome` now carries a hash of the layout.
 
 ## How this fits
 
@@ -74,6 +111,8 @@ Each item has my recommendation. Comment to change it.
 
 Rule for all three: generate the shape **once** in `shared`. Physics and visuals both use that output.
 
+Bumps: the heightfield builder exists anyway for the rough patch. So the scaffold lets a bump be either kind: a primitive collider or a small heightfield. That choice is your bump-shape slot.
+
 ### D2. Rough patch heights must be the same on both sides
 
 Uneven ground needs "random" heights. Plain `Math.random()` gives different heights on the server and the client. The plan uses a **seeded** generator in `shared`. Same seed, same heights, on both sides.
@@ -88,6 +127,16 @@ Plan:
 - Each physics step, `applySurfaceGrip` asks each wheel what it touches (`vehicle.wheelGroundObject(i)`), then sets that wheel's `frictionSlip` for that surface.
 - It lives in `shared`. Server and client both call it every step, before `updateVehicle`. Same rule on both sides, so prediction stays correct.
 
+### D3b. Size pieces from the car
+
+Bump and turn sizes come from the car's own dimensions, not from free numbers. Example: bump length (along the road) = a multiple of tire width.
+
+Problem: today the car's sizes are local constants inside functions. Chassis size is in `shared/src/rapier/chassis.ts`. Wheel radius is in `shared/src/rapier/wheels.ts`. Tire width (0.15 m) exists only in the client mesh code, `vue-client/src/three/wheels.ts`. The physics has no tire width at all, because each wheel is a ray.
+
+Plan: move these into one `shared` module, `vehicle dimensions`. Chassis, wheels, the client wheel mesh, and the terrain layout all read it. This is also the first piece of the step 3 vehicle spec.
+
+Prediction to check: each wheel is one ray straight down from its hub. At speed, the car moves about 0.3 m per physics step (1/60 s). What happens to a bump that is shorter than that, along the road?
+
 ### D4. Where the pieces go
 
 The car spawns on the ramp and rolls toward **+Z**. The ramp ends near z = 5.
@@ -98,13 +147,22 @@ Proposal:
 - Banked turn past that, near z = 100.
 - Rough patch to one side, so you can choose to drive into it.
 
-Exact positions are a slot for you (see below).
+Exact positions are a slot for you (see below). In `layout.ts`, each piece's placement and its spacing sit together in one block, because they depend on each other.
 
 ### D5. Old browser tab, new server
 
-Both sides build the terrain from code. If an open browser tab has old code and the server has new code, the terrains differ. Today the fix is: reload the tab. A version check in the `welcome` message would catch it. That is a wire protocol change.
+Both sides build the terrain from code. If an open browser tab has old code and the server has new code, the terrains differ. Today the fix is: reload the tab.
 
-Recommendation: **not in this step.** Note it and move on. Comment if you want it now.
+**In this step** (small: about 30 lines):
+
+- `shared` computes `worldVersion`: a short hash of the layout data. Any layout edit changes it automatically. No manual version number to forget.
+- `WelcomeMessage` in `shared/src/protocol.ts` gets a `worldVersion` field. The validator checks it.
+- The server sends its value. The client compares it with its own.
+- On a mismatch, the client reacts. How it reacts is a slot for you.
+
+Limit: the hash covers layout **data** only. A change to builder **code** with the same data does not change the hash. The tuning section below fixes this later.
+
+Limit: browser tabs opened before this ships do not have the check. They still need a manual reload once.
 
 ## Your slots
 
@@ -112,14 +170,28 @@ I will push a scaffold that builds and runs, with a placeholder in each slot. Yo
 
 | Slot | File (planned) | Decision | Where to look |
 | --- | --- | --- | --- |
-| Bump shape | `shared/src/terrain/pieces.ts` | Which collider shape is a good bump | `RAPIER.ColliderDesc.*` |
-| Bump size and spacing | `shared/src/terrain/layout.ts` | Height, width, gap, count | Drive over them |
-| Bank angle and radius | `shared/src/terrain/layout.ts` | How steep, how tight | Drive around it |
-| Rough patch roughness | `shared/src/terrain/layout.ts` | Height range, grid resolution | Drive into it |
+| Bump shape | `shared/src/terrain/pieces.ts` | Primitive collider or small heightfield. If primitive, which shape | `RAPIER.ColliderDesc.*` |
+| Bump size, spacing, and placement | `shared/src/terrain/layout.ts` | Size as multiples of car dimensions. Gap, count, position. One block | `vehicle dimensions`. Drive over them |
+| Bank angle, radius, and placement | `shared/src/terrain/layout.ts` | How steep, how tight, where | Drive around it |
+| Rough patch roughness and placement | `shared/src/terrain/layout.ts` | Height range, grid resolution, where | Drive into it |
 | Surface grip | `shared/src/terrain/surfaces.ts` | `frictionSlip` for road and dirt | Feel the difference |
-| Placement | `shared/src/terrain/layout.ts` | Where each piece sits | Drive the course |
+| Version mismatch | `vue-client/src/network.ts` | What the client does: reload by itself, or show a notice | Try it with two layouts |
 
 The exact file names can change in the scaffold. The slots stay the same.
+
+## Built for tuning later
+
+Not in this step. Tuning sliders come later, and they must keep server and client in sync. This step prepares for them:
+
+- **All tunable values are plain data.** Layout pieces, surface grip, and vehicle dimensions are plain JSON-safe objects. Code never hides a tunable value inside a function. Data can go on the wire. Code cannot.
+- **The terrain can rebuild.** `buildTerrainPhysics` returns a handle with `dispose()`. It removes every collider it made. The client meshes work the same way. A tune then means: dispose, then build from the new data.
+- **One function per surface rule.** `applySurfaceGrip` reads the grip table it receives as an argument. It does not read a module constant. A tuned table then works with no code change.
+
+Later design (for reference, not built now):
+
+- Terrain and surfaces are **shared by all players**. A terrain tune changes everyone's world. Flow: client sends a `tune` message, the server applies it, then broadcasts the new data to all clients.
+- Vehicle values are **per player**. They travel with each player's vehicle spec (step 3).
+- With tuning, the server sends the current world data at join, not only its hash. The client builds from what the server sends. That also closes the code-version gap from D5.
 
 ## Test plan
 
@@ -130,4 +202,3 @@ The exact file names can change in the scaffold. The slots stay the same.
 ## Open questions
 
 - Anything in the starter set you would swap for something else?
-- Do you want a live tuning panel (sliders) for the slot values? Physics sliders change only your local world, so they put you out of sync with the server. They are for solo testing only.
