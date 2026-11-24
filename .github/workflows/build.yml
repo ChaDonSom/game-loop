@@ -1,0 +1,30 @@
+# Type-checks and builds every workspace (shared, node-transport, vue-client) on each PR,
+# so a break shows up before merge instead of during deploy.sh on the droplet.
+# Free: public repo + standard GitHub-hosted runner. Do not switch to a "larger" runner (those are billed).
+name: Build
+
+on:
+  pull_request:
+  push:
+    branches: [soapbox-car, master]
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      # --ignore-scripts skips the native WebTransport (quiche) install step. The build does not need it.
+      - run: npm ci --ignore-scripts
+
+      - run: npm run build
