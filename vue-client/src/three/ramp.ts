@@ -6,10 +6,11 @@ type RampPhysics = ReturnType<typeof ramp>
 export default function initRamp(scene: THREE.Scene, rampPhysics: RampPhysics) {
   const rampMesh = new THREE.Mesh(
     new THREE.BoxGeometry(rampPhysics.width, rampPhysics.height, rampPhysics.length),
-    new THREE.MeshStandardMaterial({ color: 0x444455 }),
+    new THREE.MeshStandardMaterial({ color: 0xc9a46a }),
   )
   rampMesh.position.copy(rampPhysics.body.translation())
   rampMesh.quaternion.copy(rampPhysics.body.rotation())
+  rampMesh.castShadow = true
   rampMesh.receiveShadow = true
   scene.add(rampMesh)
   return rampMesh

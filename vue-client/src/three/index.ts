@@ -1,4 +1,4 @@
-export { initScene, initCamera, initRenderer, initLights } from "./scene"
+export { initScene, initCamera, initRenderer, initLights, followWithSun } from "./scene"
 export { default as initRamp } from "./ramp"
 export { default as initGround } from "./ground"
 export { default as initWalls } from "./walls"
