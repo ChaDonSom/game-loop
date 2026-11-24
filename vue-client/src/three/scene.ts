@@ -5,19 +5,24 @@ const GROUND_BOUNCE_COLOR = 0x6b6350
 
 /** Sun position relative to the point it lights. The sun moves with that point. */
 const SUN_OFFSET = new THREE.Vector3(20, 40, 15)
+/**
+ * The arena is 1000 m square (walls at ±500 m), so the farthest wall can be ~1414 m away.
+ * Fog and the camera far plane reach past that. Fog only softens the far side; you can still see far cars.
+ */
+const VIEW_DISTANCE = 1500
 /** Half-size of the shadow area around the sun target, in metres. */
 const SHADOW_EXTENT = 40
 
 export function initScene() {
   const scene = new THREE.Scene()
   scene.background = new THREE.Color(SKY_COLOR)
-  // Fog fades far terrain into the sky. This gives depth and hides the ground edge.
-  scene.fog = new THREE.Fog(SKY_COLOR, 80, 400)
+  // Light fog over the whole arena. It gives depth but keeps the far walls and far cars visible.
+  scene.fog = new THREE.Fog(SKY_COLOR, 200, VIEW_DISTANCE)
   return scene
 }
 
 export function initCamera() {
-  const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000)
+  const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, VIEW_DISTANCE)
   camera.position.set(0, 8, 18)
   return camera
 }
