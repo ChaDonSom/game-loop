@@ -113,3 +113,66 @@ export function isClientControlsMessage(msg: unknown): msg is ClientControlsMess
     Number.isFinite(msg.pad.brake)
   )
 }
+
+function isPositionSnapshot(value: unknown): value is PositionSnapshot {
+  return (
+    isObject(value) &&
+    Number.isInteger(value.seq) &&
+    Number.isFinite(value.x) &&
+    Number.isFinite(value.y) &&
+    Number.isFinite(value.t)
+  )
+}
+
+function isVehicleState(value: unknown): value is VehicleState {
+  return (
+    isObject(value) &&
+    typeof value.id === "string" &&
+    Number.isInteger(value.ack) &&
+    isVector3(value.position) &&
+    isQuaternion(value.rotation) &&
+    isVector3(value.velocity) &&
+    Number.isFinite(value.steering)
+  )
+}
+
+/** Validates a packet received on a server -> client unidirectional stream. */
+export function isServerStreamMessage(msg: unknown): msg is ServerStreamMessage {
+  if (!isObject(msg)) return false
+  switch (msg.type) {
+    case "welcome":
+      return typeof msg.yourId === "string"
+    case "state":
+      return (
+        Array.isArray(msg.players) &&
+        msg.players.every((player: unknown) => isPositionSnapshot(player) && typeof (player as any).id === "string")
+      )
+    default:
+      return false
+  }
+}
+
+/**
+ * Validates a server -> client datagram. Rejects the whole packet if any part is malformed, so a bad packet never
+ * advances a receiver's seq or partly updates its state.
+ */
+export function isServerDatagramMessage(msg: unknown): msg is ServerDatagramMessage {
+  if (!isObject(msg)) return false
+  switch (msg.type) {
+    case "count":
+      return Number.isInteger(msg.seq) && Number.isFinite(msg.count) && Number.isFinite(msg.t)
+    case "pos":
+      return typeof msg.id === "string" && isPositionSnapshot(msg)
+    case "state":
+      return (
+        Number.isInteger(msg.seq) &&
+        Number.isFinite(msg.t) &&
+        Array.isArray(msg.players) &&
+        msg.players.every(isVehicleState)
+      )
+    case "leave":
+      return typeof msg.id === "string"
+    default:
+      return false
+  }
+}
