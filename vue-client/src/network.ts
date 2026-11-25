@@ -176,7 +176,11 @@ async function handleIncomingStream(stream: ReadableStream<Uint8Array>) {
         console.log("Received welcome message:", msg)
         myId.value = msg.yourId
         mySpawnIndex.value = msg.spawnIndex
-        if (msg.worldVersion !== WORLD_VERSION) handleWorldMismatch(msg.worldVersion ?? null)
+        if (msg.worldVersion !== WORLD_VERSION) {
+          handleWorldMismatch(msg.worldVersion ?? null)
+          // Leave the server. It then removes this player's car, so no stale input keeps driving it.
+          void getTransport().then((transport) => transport.close())
+        }
         return
       case "state":
         for (const player of msg.players) {
@@ -302,7 +306,8 @@ function handleDisconnect() {
 }
 
 function scheduleReconnect() {
-  if (reconnectTimer || reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) return
+  // A world mismatch is not a network fault: reconnecting would join the wrong world again.
+  if (worldMismatch.value || reconnectTimer || reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) return
 
   reconnectAttempts += 1
   reconnectTimer = setTimeout(() => {

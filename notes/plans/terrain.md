@@ -158,7 +158,7 @@ Both sides build the terrain from code. If an open browser tab has old code and 
 - `WelcomeMessage` in `shared/src/protocol.ts` gets a `worldVersion` field. The validator accepts it as a string **or missing**. An old server sends no field. A missing field counts as a mismatch, so it goes to the same mismatch handling. The client still gets its id.
 - The server sends its value. The client compares it with its own.
 - On a mismatch, the client reacts. How it reacts is a slot for you. Two fixed rules apply to any choice:
-  - **Stop predicting on the wrong world.** The client builds its physics before `welcome` arrives. So on a mismatch it must stop local prediction and stop sending controls, or disconnect. A notice alone is not enough.
+  - **Stop predicting on the wrong world, and leave the server.** The client builds its physics before `welcome` arrives. So on a mismatch it stops local prediction, closes the connection, and does not reconnect. The server then removes its car. (Only stopping controls is not enough: the server keeps applying the last input it got.) A notice alone is not enough.
   - **No reload loop.** If the new page is still stale (for example, a cached bundle), an automatic reload would repeat forever. Reload by itself at most once per server version.
 
 Limit: the hash covers shared **data** only. A change to builder **code** with the same data does not change the hash. The tuning section below fixes this later.

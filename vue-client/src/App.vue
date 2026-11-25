@@ -16,7 +16,7 @@ import { worldMismatch } from "@/store/network"
     v-if="worldMismatch"
     style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); padding: 16px 24px; border-radius: 8px; background: #1a1a24; color: white; text-align: center"
   >
-    The server runs a newer world. Reload the page to join.
+    This page and the server run different versions of the world. Reload the page to update.
   </div>
 </template>
 

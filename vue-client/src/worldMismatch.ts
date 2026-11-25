@@ -6,8 +6,9 @@ import { worldMismatch } from "@/store/network"
  * `serverVersion` is null for a server older than the check.
  */
 export function handleWorldMismatch(serverVersion: string | null) {
-  // Fixed rule 1 (not a choice): stop predicting and stop sending controls.
-  // Setting this freezes the local simulation (soapbox-init.ts) and the controls sender (network.ts).
+  // Fixed rule 1 (not a choice): stop predicting and leave the server.
+  // Setting this freezes the local simulation (soapbox-init.ts) and stops controls and reconnects (network.ts).
+  // network.ts also closes the connection, so the server removes this player's car.
   worldMismatch.value = { server: serverVersion, client: WORLD_VERSION }
 
   // YOUR CHOICE: what happens next for the player. Look at reloadOncePerVersion below, and at the

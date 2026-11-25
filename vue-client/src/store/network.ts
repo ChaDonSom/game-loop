@@ -18,5 +18,5 @@ export const connectionStatus = ref<"disconnected" | "connecting" | "connected">
 export const serverCount = ref<number | null>(null)
 export const remotePlayers = ref<Record<string, PlayerSnapshot[]>>({})
 export const authoritativePlayers = ref<Record<string, VehicleSnapshot>>({})
-/** Set when the server's world data differs from this page's. While set: no local prediction, no controls sent. */
+/** Set when the server's world data differs from this page's. While set: no local prediction, no connection. */
 export const worldMismatch = ref<{ server: string | null; client: string } | null>(null)
