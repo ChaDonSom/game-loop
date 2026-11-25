@@ -30,6 +30,7 @@ import updateCamera from "@/three/camera"
 import { queueControls, stateLagSeconds } from "@/network"
 import { authoritativePlayers, myId, mySpawnIndex } from "@/store/network"
 import reconcile from "@/physics/reconcile"
+import RenderSmoothing from "@/physics/renderSmoothing"
 
 async function init() {
   const { world } = await initRapier()
@@ -76,6 +77,7 @@ async function init() {
   let steering = 0
   /** Session (`myId`) whose spawn the local car was last reset to. Each `welcome` gives a new id. */
   let spawnedForId: string | null = null
+  const smoothing = new RenderSmoothing(chassis.body)
 
   function animate(currentTime: number) {
     requestAnimationFrame(animate)
@@ -88,6 +90,7 @@ async function init() {
     if (myId.value !== null && mySpawnIndex.value !== null && myId.value !== spawnedForId) {
       resetChassisToSpawn(chassis.body, mySpawnIndex.value)
       resetDriveState(vehicle)
+      smoothing.reset()
       spawnedForId = myId.value
       lastReconciledAck = 0
     }
@@ -99,14 +102,18 @@ async function init() {
       steering = handleSteeringAndDrive(fixedDt, chassis.body, pad, currentKeys, vehicle).steering
 
       vehicle.updateVehicle(fixedDt)
+      smoothing.beforeStep()
       world.step()
+      smoothing.afterStep()
       accumulator -= fixedDt
     }
 
     const localSnapshot = myId.value ? authoritativePlayers.value[myId.value] : undefined
     if (localSnapshot && localSnapshot.ack > lastReconciledAck) {
       const lag = stateLagSeconds(localSnapshot.ack, localSnapshot.ackAgeMs) ?? 0
+      smoothing.beginCorrection()
       reconcile(chassis.body, localSnapshot, lag)
+      smoothing.endCorrection()
       lastReconciledAck = localSnapshot.ack
     }
 
@@ -158,16 +165,13 @@ async function init() {
       remoteChassisMeshes.delete(id)
     }
 
-    // Update chassis visual position
-    const cPos = chassis.body.translation()
-    const cRot = chassis.body.rotation()
-    chassisMesh.position.set(cPos.x, cPos.y, cPos.z)
-    chassisMesh.quaternion.set(cRot.x, cRot.y, cRot.z, cRot.w)
+    // Draw a blend of the last two physics steps, plus the fading correction offset. See RenderSmoothing.
+    smoothing.sample(accumulator / fixedDt, frameDt, chassisMesh.position, chassisMesh.quaternion)
 
     updateCamera(chassisMesh, camera, frameDt)
     followWithSun(sun, chassisMesh.position)
 
-    moveWheelMeshesToWorldCoordinates(vehicle, wheelMeshes, { body: chassis.body, mesh: chassisMesh }, steering)
+    moveWheelMeshesToWorldCoordinates(vehicle, wheelMeshes, chassisMesh, steering)
 
     renderer.render(scene, camera)
   }
