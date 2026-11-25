@@ -1,15 +1,41 @@
 import RAPIER from "@dimforge/rapier3d-compat"
 
-export default function initChassis(world: RAPIER.World, spawnIndex = 0) {
-  const chassisWidth = 1.2,
-    chassisHeight = 0.4,
-    chassisLength = 2.4
+export const chassisWidth = 1.2
+export const chassisHeight = 0.4
+export const chassisLength = 2.4
 
-  // Dynamic rigid body positioned at the top of the ramp
-  const chassisBodyDesc = RAPIER.RigidBodyDesc.dynamic()
-    .setTranslation(spawnIndex * 3, 7, -12)
-    .setRotation({ x: 0, y: 1, z: 0.2, w: 0 }) // Quarternions: an imaginary vector, x,y,z, and the real component w
-  // which sets how far the rotation is around the axis defined by the imaginary vector (x, y, z), in radians
+/** Spawn slots per row. The ramp is 6 m wide (x from -3 to 3), so two cars fit side by side. */
+const SLOTS_PER_ROW = 2
+const SLOT_X = [-1.5, 1.5]
+/** Each row is 3 m further down the ramp. The ramp drops ~0.55 m in height per metre of z. */
+const ROW_Z_STEP = 3
+const ROW_Y_STEP = ROW_Z_STEP * 0.554
+
+/**
+ * Start pose for a spawn slot. Server and client both use it, so a client starts its car where the server does.
+ * Every slot is on the ramp.
+ */
+export function spawnPose(spawnIndex: number) {
+  const row = Math.floor(spawnIndex / SLOTS_PER_ROW)
+  return {
+    translation: {
+      x: SLOT_X[spawnIndex % SLOTS_PER_ROW] ?? 0,
+      y: 7 - row * ROW_Y_STEP,
+      z: -12 + row * ROW_Z_STEP,
+    },
+    // Quaternion (x, y, z, w). Rapier normalizes it. Faces the car down the ramp.
+    rotation: { x: 0, y: 1, z: 0.2, w: 0 },
+  }
+}
+
+export default function initChassis(world: RAPIER.World, spawnIndex = 0) {
+  const pose = spawnPose(spawnIndex)
+  const chassisBodyDesc = RAPIER.RigidBodyDesc.dynamic().setTranslation(
+    pose.translation.x,
+    pose.translation.y,
+    pose.translation.z,
+  )
+  chassisBodyDesc.setRotation(pose.rotation)
   const chassisBody = world.createRigidBody(chassisBodyDesc)
 
   const chassisColliderDesc = RAPIER.ColliderDesc.cuboid(
@@ -26,3 +52,13 @@ export default function initChassis(world: RAPIER.World, spawnIndex = 0) {
     length: chassisLength,
   }
 }
+
+/** Moves a chassis body back to a spawn slot and stops it. */
+export function resetChassisToSpawn(body: RAPIER.RigidBody, spawnIndex: number) {
+  const pose = spawnPose(spawnIndex)
+  body.setTranslation(pose.translation, true)
+  body.setRotation(pose.rotation, true)
+  body.setLinvel({ x: 0, y: 0, z: 0 }, true)
+  body.setAngvel({ x: 0, y: 0, z: 0 }, true)
+}
+

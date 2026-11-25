@@ -8,6 +8,8 @@ import {
   initChassis,
   initWheels,
   handleSteeringAndDrive,
+  resetChassisToSpawn,
+  resetDriveState,
 } from "@game-loop/shared"
 import {
   initCamera,
@@ -25,8 +27,9 @@ import getGamePadState from "@/input/pad"
 import keys from "@/input/keys"
 import { moveWheelMeshesToWorldCoordinates } from "@/three/wheels"
 import updateCamera from "@/three/camera"
-import { queueControls } from "@/network"
-import { authoritativePlayers, myId } from "@/store/network"
+import { queueControls, stateLagSeconds } from "@/network"
+import { authoritativePlayers, myId, mySpawnIndex } from "@/store/network"
+import reconcile from "@/physics/reconcile"
 
 async function init() {
   const { world } = await initRapier()
@@ -71,12 +74,23 @@ async function init() {
   let accumulator = 0
   let lastReconciledAck = 0
   let steering = 0
+  /** Session (`myId`) whose spawn the local car was last reset to. Each `welcome` gives a new id. */
+  let spawnedForId: string | null = null
 
   function animate(currentTime: number) {
     requestAnimationFrame(animate)
     const frameDt = Math.min((currentTime - lastFrameTime) / 1000, 0.1)
     lastFrameTime = currentTime
     accumulator += frameDt
+
+    // Start where the server put this car. The client does not know its slot until `welcome` arrives. Reset once per
+    // session: a reconnect can get the same slot again, and the server car then starts fresh at it.
+    if (myId.value !== null && mySpawnIndex.value !== null && myId.value !== spawnedForId) {
+      resetChassisToSpawn(chassis.body, mySpawnIndex.value)
+      resetDriveState(vehicle)
+      spawnedForId = myId.value
+      lastReconciledAck = 0
+    }
 
     while (accumulator >= fixedDt) {
       const pad = getGamePadState()
@@ -91,41 +105,8 @@ async function init() {
 
     const localSnapshot = myId.value ? authoritativePlayers.value[myId.value] : undefined
     if (localSnapshot && localSnapshot.ack > lastReconciledAck) {
-      const position = chassis.body.translation()
-      chassis.body.setTranslation(
-        {
-          x: THREE.MathUtils.lerp(position.x, localSnapshot.position.x, 0.2),
-          y: THREE.MathUtils.lerp(position.y, localSnapshot.position.y, 0.2),
-          z: THREE.MathUtils.lerp(position.z, localSnapshot.position.z, 0.2),
-        },
-        true,
-      )
-
-      const rotation = chassis.body.rotation()
-      const correctedRotation = new THREE.Quaternion(rotation.x, rotation.y, rotation.z, rotation.w)
-      correctedRotation.slerp(
-        new THREE.Quaternion(
-          localSnapshot.rotation.x,
-          localSnapshot.rotation.y,
-          localSnapshot.rotation.z,
-          localSnapshot.rotation.w,
-        ),
-        0.2,
-      )
-      chassis.body.setRotation(
-        { x: correctedRotation.x, y: correctedRotation.y, z: correctedRotation.z, w: correctedRotation.w },
-        true,
-      )
-
-      const velocity = chassis.body.linvel()
-      chassis.body.setLinvel(
-        {
-          x: THREE.MathUtils.lerp(velocity.x, localSnapshot.velocity.x, 0.2),
-          y: THREE.MathUtils.lerp(velocity.y, localSnapshot.velocity.y, 0.2),
-          z: THREE.MathUtils.lerp(velocity.z, localSnapshot.velocity.z, 0.2),
-        },
-        true,
-      )
+      const lag = stateLagSeconds(localSnapshot.ack, localSnapshot.ackAgeMs) ?? 0
+      reconcile(chassis.body, localSnapshot, lag)
       lastReconciledAck = localSnapshot.ack
     }
 
@@ -183,7 +164,7 @@ async function init() {
     chassisMesh.position.set(cPos.x, cPos.y, cPos.z)
     chassisMesh.quaternion.set(cRot.x, cRot.y, cRot.z, cRot.w)
 
-    updateCamera(chassisMesh, camera)
+    updateCamera(chassisMesh, camera, frameDt)
     followWithSun(sun, chassisMesh.position)
 
     moveWheelMeshesToWorldCoordinates(vehicle, wheelMeshes, { body: chassis.body, mesh: chassisMesh }, steering)

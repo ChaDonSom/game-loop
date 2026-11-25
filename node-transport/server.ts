@@ -75,9 +75,9 @@ async function handleSession(session: {
   const visitorId = crypto.randomUUID()
   session.visitorId = visitorId
   activeSessions.set(visitorId, session)
-  simulation.addPlayer(visitorId)
+  const spawnIndex = simulation.addPlayer(visitorId)
 
-  sendJsonMessage(session, { type: "welcome", yourId: visitorId }).catch((err) => {
+  sendJsonMessage(session, { type: "welcome", yourId: visitorId, spawnIndex }).catch((err) => {
     console.error("Failed to send welcome packet:", err)
   })
 
