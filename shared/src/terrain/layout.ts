@@ -15,9 +15,9 @@ const car = VEHICLE_DIMENSIONS.chassis
 // Bumps: size, spacing, placement
 // ---------------------------------------------------------------------------
 // YOUR CHOICE: bump size, as multiples of the car (tire.width, tire.radius, car.width ...).
-// Length is along the road, width is across it.
-const bumpLength = 3 * tire.width // Length is no longer used in a cylinder
-const bumpHeight = 5 * tire.width
+// Length is the footprint along the road, width is across it, height is how far the top sticks up.
+const bumpLength = 4.33 * tire.width
+const bumpHeight = 1.25 * tire.width
 const bumpWidth = 4 * car.width
 // YOUR CHOICE: how many, how far apart, and where the row starts.
 const bumpCount = 10
@@ -28,7 +28,7 @@ const bumps: BumpPiece[] = Array.from({ length: bumpCount }, (_, i) => ({
   kind: "bump",
   id: `bump-${i}`,
   surface: "road",
-  position: { x: bumpStart.x, y: (bumpHeight * 0.75) * -1, z: bumpStart.z + i * bumpGap },
+  position: { x: bumpStart.x, y: 0, z: bumpStart.z + i * bumpGap },
   rotationY: 0,
   length: bumpLength,
   width: bumpWidth,

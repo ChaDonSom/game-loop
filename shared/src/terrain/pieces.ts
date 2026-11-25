@@ -25,14 +25,14 @@ const GROUND_CLEARANCE = 0.01
 const rotZ90 = { x: 0, y: 0, z: Math.SQRT1_2, w: Math.SQRT1_2 }
 
 function bumpCollider(piece: BumpPiece): RAPIER.ColliderDesc {
-  // YOUR CHOICE: bump shape. Explore RAPIER.ColliderDesc.* for a primitive (keep its top at piece.height),
-  // or return gridHeightfield(...) below for a varied shape (piece.seed + seededRandom keep it the same on both sides).
-  // Placeholder: a plain box.
-  return RAPIER.ColliderDesc.cylinder(piece.width / 2, piece.height / 2).setTranslation(
-    0,
-    piece.height / 2,
-    0,
-  ).setRotation(rotZ90)
+  // A round-topped bump: a cylinder lying across the road (axis along X), sunk into the ground so only
+  // an arc sticks out. Its footprint on the ground is piece.length along the road, and its top is at piece.height.
+  // Circle through the two ground edges (±length/2, 0) and the top (0, height):
+  const halfLength = piece.length / 2
+  const radius = (halfLength * halfLength + piece.height * piece.height) / (2 * piece.height)
+  return RAPIER.ColliderDesc.cylinder(piece.width / 2, radius)
+    .setTranslation(0, piece.height - radius, 0)
+    .setRotation(rotZ90)
 }
 
 /**
