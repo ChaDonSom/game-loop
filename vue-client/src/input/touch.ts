@@ -18,8 +18,14 @@ const DEG = Math.PI / 180
 export const WHEEL_GAIN = 1
 /** Total wheel turn, lock to lock. */
 export const VISUAL_LOCK = 900 * DEG
-/** Self-centering, in wheel degrees per metre the front wheels roll. */
+/** Self-centering, in wheel degrees per metre the front wheels roll. Holds at low speed; see `CENTER_SAT_SPEED`. */
 export const CENTER_RATE = 120 * DEG
+/**
+ * Speed (m/s) where centering levels off. Effective speed = v / (1 + v / CENTER_SAT_SPEED): about `v` well below it,
+ * and it never passes CENTER_SAT_SPEED, so centering never gets faster than CENTER_RATE × CENTER_SAT_SPEED (960°/s at 8).
+ * Real steering does the same: damping and inertia cap the return rate. Raise it to center faster at speed.
+ */
+export const CENTER_SAT_SPEED = 8
 /** Wheel radius as a fraction of the viewport short side. */
 export const WHEEL_RADIUS_FRAC = 0.16
 /** Wheel radius on phones (coarse pointer, short side under 500 px). 0.21 = diameter equal to the pedal height. */
@@ -51,7 +57,8 @@ function pedalCurve(travel: number) {
 
 /** SLOT. One centering step. Never crosses zero; returns exactly 0 when `rolling` is 0 and the angle is 0. */
 function centerStep(angle: number, rolling: number, dt: number) {
-  return angle - Math.sign(angle) * Math.min(Math.abs(angle), CENTER_RATE * rolling * dt)
+  const effective = rolling / (1 + rolling / CENTER_SAT_SPEED)
+  return angle - Math.sign(angle) * Math.min(Math.abs(angle), CENTER_RATE * effective * dt)
 }
 
 // ----------------------------------------------------
