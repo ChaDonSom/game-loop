@@ -2,12 +2,16 @@ export { initRapier } from "./rapier.js"
 export { default as ramp } from "./rapier/ramp.js"
 export { default as initGround } from "./rapier/ground.js"
 export { default as initWalls } from "./rapier/walls.js"
-export { default as initChassis } from "./rapier/chassis.js"
+export {
+  default as initChassis,
+  spawnPose,
+  resetChassisToSpawn,
+} from "./rapier/chassis.js"
 export { default as initWheels } from "./rapier/wheels.js"
 export type { Pad } from "./controls/types.js"
 export type { Keys } from "./controls/types.js"
 export { clamp } from "./math.js"
-export { default as handleSteeringAndDrive } from "./controls/handleSteeringAndDrive.js"
+export { default as handleSteeringAndDrive, resetDriveState } from "./controls/handleSteeringAndDrive.js"
 export * from "./protocol.js"
 export { VEHICLE_DIMENSIONS, type VehicleDimensions } from "./vehicle/dimensions.js"
 export type * from "./terrain/types.js"

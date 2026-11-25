@@ -11,6 +11,15 @@ const controllerStates = new WeakMap<
   { engineForce: number; steering: number }
 >()
 
+/** Clears the engine force and steering this module keeps for `vehicle`. Call it when the car respawns. */
+export function resetDriveState(vehicle: RAPIER.DynamicRayCastVehicleController) {
+  controllerStates.delete(vehicle)
+  for (let i = 0; i < vehicle.numWheels(); i++) {
+    vehicle.setWheelEngineForce(i, 0)
+    vehicle.setWheelSteering(i, 0)
+  }
+}
+
 export default function handleSteeringAndDrive(
   dt: number,
   body: RAPIER.RigidBody,
