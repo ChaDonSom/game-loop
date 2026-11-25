@@ -15,8 +15,14 @@ const minSteering = -0.45
 const BRAKE_FORCE = 0.15
 /** SLOT. |speed| (m/s) under which auto mode treats the car as stopped, so brake turns into reverse. */
 const STOP_SPEED = 0.3
-/** SLOT. Seconds of key hold from 0 to full throttle or brake. */
-const KEY_RAMP_UP_S = 1.5
+/** SLOT. Seconds of key hold from 0 to full throttle or brake. 4 s matches the old ±0.1-per-step force ramp. */
+const KEY_RAMP_UP_S = 4
+/** SLOT. Top speed forward, m/s. */
+const MAX_FORWARD_SPEED = 15
+/** SLOT. Top speed in reverse, m/s. */
+const MAX_REVERSE_SPEED = 5
+/** Engine force fades to 0 over this many m/s below top speed, so the car settles at it instead of surging. */
+const TOP_SPEED_BAND = 2
 
 const wheelCount = 4
 const engineWheels = [2, 3]
@@ -48,6 +54,13 @@ function forwardSpeed(body: RAPIER.RigidBody) {
   const fy = -2 * (q.y * q.z - q.w * q.x)
   const fz = -(1 - 2 * (q.x * q.x + q.y * q.y))
   return fx * v.x + fy * v.y + fz * v.z
+}
+
+/** Scales engine force down to 0 as speed in the push direction nears that direction's top speed. */
+function limitTopSpeed(engineForce: number, speed: number) {
+  if (engineForce > 0) return engineForce * clamp((MAX_FORWARD_SPEED - speed) / TOP_SPEED_BAND, 0, 1)
+  if (engineForce < 0) return engineForce * clamp((MAX_REVERSE_SPEED + speed) / TOP_SPEED_BAND, 0, 1)
+  return engineForce
 }
 
 /** Maps pedal inputs to engine force (rear wheels) and brake impulse (all wheels). */
@@ -99,7 +112,10 @@ export default function handleSteeringAndDrive(
   }
 
   // Rapier applies a wheel's brake only while its engine force is 0, so rear brakes act only off-throttle.
-  const { engineForce, brakeForce } = resolveDrive(throttle, brake, reverse, forwardSpeed(body))
+  const speed = forwardSpeed(body)
+  const drive = resolveDrive(throttle, brake, reverse, speed)
+  const engineForce = limitTopSpeed(drive.engineForce, speed)
+  const { brakeForce } = drive
 
   for (const i of engineWheels) vehicle.setWheelEngineForce(i, engineForce)
   for (let i = 0; i < wheelCount; i++) vehicle.setWheelBrake(i, brakeForce)
