@@ -109,6 +109,9 @@ export default function handleSteeringAndDrive(
     throttle = clamp(pad.throttle, 0, 1)
     brake = clamp(pad.brake, 0, 1)
     reverse = pad.reverse
+    // Drop key ramp state, so a later switch back to keys starts from rest, not from a stale held pedal.
+    keyThrottle = 0
+    keyBrake = 0
   }
 
   // Rapier applies a wheel's brake only while its engine force is 0, so rear brakes act only off-throttle.
