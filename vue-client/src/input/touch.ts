@@ -22,6 +22,8 @@ export const VISUAL_LOCK = 900 * DEG
 export const CENTER_RATE = 120 * DEG
 /** Wheel radius as a fraction of the viewport short side. */
 export const WHEEL_RADIUS_FRAC = 0.16
+/** Wheel radius on phones (coarse pointer, short side under 500 px). 0.21 = diameter equal to the pedal height. */
+export const PHONE_WHEEL_RADIUS_FRAC = 0.21
 /** Gap from the screen edge (plus safe area), CSS px. */
 export const EDGE_MARGIN = 24
 /** Finger inside this fraction of the radius does not turn the wheel (atan2 jitters near the center). */
@@ -30,10 +32,21 @@ export const PEDAL_W_FRAC = 0.14
 export const PEDAL_H_FRAC = 0.42
 export const PEDAL_DEAD_LOW = 0.08
 export const PEDAL_SAT_HIGH = 0.92
+/**
+ * Pedal output = travel ^ PEDAL_CURVE_EXP. 1 = linear. 2 = half travel gives 25%, so the low range gets more finger room.
+ * Full gas is about 11 m/s² on this 2.3 kg car; a typical road car pulls about 3–4 m/s², which is 30% gas. At 2, that
+ * is a finger at about half height.
+ */
+export const PEDAL_CURVE_EXP = 2
 
 /** SLOT. Response curve from normalized wheel angle (−1…1) to steer (−1…1). */
 function applyCurve(x: number) {
   return x
+}
+
+/** Pedal travel (0…1, what the fill shows) to pedal output (0…1, what the car gets). */
+function pedalCurve(travel: number) {
+  return Math.pow(travel, PEDAL_CURVE_EXP)
 }
 
 /** SLOT. One centering step. Never crosses zero; returns exactly 0 when `rolling` is 0 and the angle is 0. */
@@ -49,7 +62,7 @@ export function wrapToPi(angle: number) {
   return angle - 2 * Math.PI * Math.floor((angle + Math.PI) / (2 * Math.PI))
 }
 
-/** Pedal value from finger height. `y` and `bottom` are screen px (y down). Clamped 0…1 with dead band. */
+/** Pedal travel from finger height. `y` and `bottom` are screen px (y down). Clamped 0…1 with dead band. */
 export function pedalValue(y: number, bottom: number, height: number) {
   const v = (bottom - y) / height
   if (v <= PEDAL_DEAD_LOW) return 0
@@ -190,8 +203,8 @@ export function getTouchPad(): Pad {
   return {
     connected: true,
     steer: applyCurve(wheelAngle / halfLock),
-    throttle: pedals.throttle,
-    brake: pedals.brake,
+    throttle: pedalCurve(pedals.throttle),
+    brake: pedalCurve(pedals.brake),
     reverse: gear.value === "AUTO" ? undefined : gear.value === "R",
   }
 }

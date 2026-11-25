@@ -2,17 +2,69 @@
 import Datagrams from "@/components/Datagrams.vue"
 import TouchControls from "@/components/TouchControls.vue"
 import { worldMismatch } from "@/store/network"
+import { onBeforeUnmount, onMounted, ref } from "vue"
 
 /** Fullscreen on a phone hides the browser's reload button. */
 function reload() {
   location.reload()
 }
+
+// Fullscreen API. Prefixed on older Safari. iPhone Safari does not offer it for pages: there, Add to Home Screen
+// (see the manifest and apple meta tags in index.html) is the way to hide the browser bar, so the button stays hidden.
+type WebkitDocument = Document & {
+  webkitFullscreenEnabled?: boolean
+  webkitFullscreenElement?: Element | null
+  webkitExitFullscreen?: () => Promise<void>
+}
+type WebkitElement = HTMLElement & { webkitRequestFullscreen?: () => Promise<void> }
+const doc = document as WebkitDocument
+const canFullscreen = !!(doc.fullscreenEnabled || doc.webkitFullscreenEnabled)
+const isFullscreen = ref(false)
+
+function syncFullscreen() {
+  isFullscreen.value = !!(doc.fullscreenElement || doc.webkitFullscreenElement)
+}
+
+async function toggleFullscreen() {
+  try {
+    if (isFullscreen.value) {
+      await (doc.exitFullscreen ? doc.exitFullscreen() : doc.webkitExitFullscreen?.())
+      return
+    }
+    const root = document.documentElement as WebkitElement
+    await (root.requestFullscreen ? root.requestFullscreen({ navigationUI: "hide" }) : root.webkitRequestFullscreen?.())
+    // Android allows an orientation lock only in fullscreen. Other browsers reject it: keep the current orientation.
+    const orientation = screen.orientation as ScreenOrientation & { lock?: (o: string) => Promise<void> }
+    await orientation.lock?.("landscape").catch(() => {})
+  } catch {
+    // Refused (no user gesture, or blocked): stay as is.
+  }
+}
+
+onMounted(() => {
+  document.addEventListener("fullscreenchange", syncFullscreen)
+  document.addEventListener("webkitfullscreenchange", syncFullscreen)
+})
+onBeforeUnmount(() => {
+  document.removeEventListener("fullscreenchange", syncFullscreen)
+  document.removeEventListener("webkitfullscreenchange", syncFullscreen)
+})
 </script>
 
 <template>
   <div class="top-bar">
     <Datagrams />
-    <button type="button" class="reload" title="Reload page" aria-label="Reload page" @click="reload">↻</button>
+    <button type="button" class="pill" title="Reload page" aria-label="Reload page" @click="reload">↻</button>
+    <button
+      v-if="canFullscreen"
+      type="button"
+      class="pill"
+      :title="isFullscreen ? 'Exit fullscreen' : 'Fullscreen'"
+      :aria-label="isFullscreen ? 'Exit fullscreen' : 'Fullscreen'"
+      @click="toggleFullscreen"
+    >
+      {{ isFullscreen ? "⤡" : "⛶" }}
+    </button>
     <p class="tagline">Simple soapbox cars in a shared physics environment.</p>
   </div>
   <div
@@ -35,7 +87,7 @@ function reload() {
   gap: 6px;
   z-index: 11;
 }
-.reload {
+.pill {
   padding: 2px 8px;
   border: 0;
   border-radius: 999px;

@@ -9,6 +9,7 @@ import {
   EDGE_MARGIN,
   PEDAL_H_FRAC,
   PEDAL_W_FRAC,
+  PHONE_WHEEL_RADIUS_FRAC,
   WHEEL_RADIUS_FRAC,
   gear,
   getPedal,
@@ -35,6 +36,7 @@ const HIT_FRAC = 1.15
 // ----------------------------------------------------
 
 const shortSide = ref(Math.min(window.innerWidth, window.innerHeight))
+const coarsePointer = window.matchMedia("(pointer: coarse)")
 function onResize() {
   shortSide.value = Math.min(window.innerWidth, window.innerHeight)
 }
@@ -44,7 +46,8 @@ const inset = (side: "left" | "right" | "bottom", n: number) => `calc(env(safe-a
 
 const layout = computed(() => {
   const S = shortSide.value
-  const R = S * WHEEL_RADIUS_FRAC
+  const isPhone = coarsePointer.matches && S < 500
+  const R = S * (isPhone ? PHONE_WHEEL_RADIUS_FRAC : WHEEL_RADIUS_FRAC)
   const hitR = R * HIT_FRAC
   const pedalW = S * PEDAL_W_FRAC
   const pedalH = S * PEDAL_H_FRAC
