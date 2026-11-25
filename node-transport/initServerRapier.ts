@@ -101,6 +101,7 @@ export default async function initServerRapier(broadcastDatagram: (message: Vehi
         const position = player.chassis.body.translation()
         const rotation = player.chassis.body.rotation()
         const velocity = player.chassis.body.linvel()
+        const angularVelocity = player.chassis.body.angvel()
         const playerControls = controls[id]
         return {
           id,
@@ -109,6 +110,7 @@ export default async function initServerRapier(broadcastDatagram: (message: Vehi
           position: { x: position.x, y: position.y, z: position.z },
           rotation: { x: rotation.x, y: rotation.y, z: rotation.z, w: rotation.w },
           velocity: { x: velocity.x, y: velocity.y, z: velocity.z },
+          angularVelocity: { x: angularVelocity.x, y: angularVelocity.y, z: angularVelocity.z },
           steering: player.steering,
         }
       }),
