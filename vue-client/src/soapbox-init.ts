@@ -23,6 +23,7 @@ import {
 } from "./three"
 import getGamePadState from "@/input/pad"
 import keys from "@/input/keys"
+import { frontRolling, getTouchPad, touchVisible, updateWheel } from "@/input/touch"
 import { moveWheelMeshesToWorldCoordinates } from "@/three/wheels"
 import updateCamera from "@/three/camera"
 import { queueControls } from "@/network"
@@ -79,7 +80,11 @@ async function init() {
     accumulator += frameDt
 
     while (accumulator >= fixedDt) {
-      const pad = getGamePadState()
+      // Center the touch wheel every step, so it is centered when touch comes back after the gamepad.
+      updateWheel(fixedDt, frontRolling(vehicle, fixedDt, wheelRadius))
+      const gamepad = getGamePadState()
+      if (gamepad.connected && touchVisible.value) touchVisible.value = false
+      const pad = gamepad.connected ? gamepad : touchVisible.value ? getTouchPad() : gamepad
       const currentKeys = { ...keys }
       queueControls({ keys: currentKeys, pad })
       steering = handleSteeringAndDrive(fixedDt, chassis.body, pad, currentKeys, vehicle).steering

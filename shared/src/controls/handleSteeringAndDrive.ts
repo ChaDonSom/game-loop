@@ -6,10 +6,60 @@ const maxEngineForce = 25
 const minEngineForce = -25
 const maxSteering = 0.45
 const minSteering = -0.45
-const controllerStates = new WeakMap<
-  RAPIER.DynamicRayCastVehicleController,
-  { engineForce: number; steering: number }
->()
+
+/**
+ * SLOT. Brake impulse per wheel per step at full brake (Rapier `setWheelBrake` is a max impulse, N·s). The car is
+ * about 2.3 kg. In a headless test from 4.5 m/s: 0.1 stops in about 0.6 m with no pitch; 0.3 and up pitch the car
+ * onto its nose and it rocks. The spec placeholder was 1.0.
+ */
+const BRAKE_FORCE = 0.15
+/** SLOT. |speed| (m/s) under which auto mode treats the car as stopped, so brake turns into reverse. */
+const STOP_SPEED = 0.3
+/** SLOT. Seconds of key hold from 0 to full throttle or brake. */
+const KEY_RAMP_UP_S = 1.5
+
+const wheelCount = 4
+const engineWheels = [2, 3]
+const steerWheels = [0, 1]
+
+type DriveState = { steering: number; keyThrottle: number; keyBrake: number }
+const controllerStates = new WeakMap<RAPIER.DynamicRayCastVehicleController, DriveState>()
+
+/** SLOT. Key pedal build-up while held. Depends on step count only, so client and server agree. */
+function rampUp(value: number, dt: number) {
+  return Math.min(value + dt / KEY_RAMP_UP_S, 1)
+}
+
+/** SLOT. Key pedal decay after release. */
+function rampDown(value: number) {
+  const next = value * 0.9
+  return next < 0.01 ? 0 : next
+}
+
+/**
+ * Signed speed along the chassis forward axis (local −z, where the front wheels sit), m/s, forward positive.
+ * Not `currentVehicleSpeed()`: in a headless test (Rapier 0.20) it stayed positive while the car drove backward.
+ */
+function forwardSpeed(body: RAPIER.RigidBody) {
+  const q = body.rotation()
+  const v = body.linvel()
+  // Local −z rotated by q.
+  const fx = -2 * (q.x * q.z + q.w * q.y)
+  const fy = -2 * (q.y * q.z - q.w * q.x)
+  const fz = -(1 - 2 * (q.x * q.x + q.y * q.y))
+  return fx * v.x + fy * v.y + fz * v.z
+}
+
+/** Maps pedal inputs to engine force (rear wheels) and brake impulse (all wheels). */
+function resolveDrive(throttle: number, brake: number, reverse: boolean | undefined, speed: number) {
+  if (reverse === false) return { engineForce: throttle * maxEngineForce, brakeForce: brake * BRAKE_FORCE }
+  if (reverse === true) return { engineForce: throttle * minEngineForce, brakeForce: brake * BRAKE_FORCE }
+
+  // Auto: the pedal against the direction of travel brakes; at a stop, the stronger pedal sets direction.
+  if (speed > STOP_SPEED) return { engineForce: throttle * maxEngineForce, brakeForce: brake * BRAKE_FORCE }
+  if (speed < -STOP_SPEED) return { engineForce: brake * minEngineForce, brakeForce: throttle * BRAKE_FORCE }
+  return { engineForce: brake > throttle ? brake * minEngineForce : throttle * maxEngineForce, brakeForce: 0 }
+}
 
 export default function handleSteeringAndDrive(
   dt: number,
@@ -18,48 +68,51 @@ export default function handleSteeringAndDrive(
   keys: Keys,
   vehicle: RAPIER.DynamicRayCastVehicleController,
 ) {
-  const state = controllerStates.get(vehicle) ?? { engineForce: 0, steering: 0 }
-  let { engineForce, steering } = state
-  const connected = pad.connected
-  const steerInput = clamp(pad.steer, -1, 1)
-  const throttleInput = clamp(pad.throttle, 0, 1)
-  const brakeInput = clamp(pad.brake, 0, 1)
+  const state = controllerStates.get(vehicle) ?? { steering: 0, keyThrottle: 0, keyBrake: 0 }
+  let { steering, keyThrottle, keyBrake } = state
+  let throttle: number
+  let brake: number
+  let reverse: boolean | undefined
 
-  if (!connected) {
+  if (!pad.connected) {
     // Arrow keys will need the velocity of the body, to determine how quickly to adjust the steering
-    const velocity = body.linvel() // Get the current velocity of the body
-    // Get speed from velocity, velocity is just { x, y, z }
-    const speed = Math.sqrt(velocity.x * velocity.x + velocity.y * velocity.y + velocity.z * velocity.z) // Calculate the speed of the body
+    const velocity = body.linvel()
+    const speed = Math.sqrt(velocity.x * velocity.x + velocity.y * velocity.y + velocity.z * velocity.z)
     const steeringAdjustment = 0.07 / (speed + 1) // Adjust steering less based on higher speed
     if (keys.ArrowLeft || keys.KeyA) steering = Math.min(steering + steeringAdjustment, maxSteering)
     if (keys.ArrowRight || keys.KeyD) steering = Math.max(steering - steeringAdjustment, minSteering)
     if (!keys.ArrowLeft && !keys.KeyA && !keys.ArrowRight && !keys.KeyD) {
-      // Gradually reduce steering to zero when no left/right keys are pressed
       steering *= 0.9 // Gradually reduce steering towards zero
     }
 
-    // Throttle/brake rear wheels (Index 2 and 3)
-    if (keys.ArrowUp || keys.KeyW) engineForce = Math.min(engineForce + 0.1, maxEngineForce)
-    if (keys.ArrowDown || keys.KeyS) engineForce = Math.max(engineForce - 0.1, minEngineForce)
-    if (!keys.ArrowUp && !keys.KeyW && !keys.ArrowDown && !keys.KeyS) {
-      // Gradually reduce engine force to zero when no throttle or brake keys are pressed
-      engineForce *= 0.9 // Gradually reduce engine force towards zero
-    }
+    // Ramped pedals: full force at once makes the tyres slide.
+    keyThrottle = keys.ArrowUp || keys.KeyW ? rampUp(keyThrottle, dt) : rampDown(keyThrottle)
+    keyBrake = keys.ArrowDown || keys.KeyS ? rampUp(keyBrake, dt) : rampDown(keyBrake)
+    throttle = keyThrottle
+    brake = keyBrake
+    reverse = undefined // Keys are always auto.
   } else {
-    // Gamepad controls
-    steering = steerInput * maxSteering * -1
-
-    // Throttle/brake rear wheels (Index 2 and 3)
-    engineForce = throttleInput * maxEngineForce
-    if (brakeInput > 0) engineForce = Math.max(engineForce - brakeInput * maxEngineForce, minEngineForce)
+    steering = clamp(pad.steer, -1, 1) * maxSteering * -1
+    throttle = clamp(pad.throttle, 0, 1)
+    brake = clamp(pad.brake, 0, 1)
+    reverse = pad.reverse
   }
 
-  vehicle.setWheelEngineForce(2, engineForce)
-  vehicle.setWheelEngineForce(3, engineForce)
+  // Rapier applies a wheel's brake only while its engine force is 0, so rear brakes act only off-throttle.
+  const { engineForce, brakeForce } = resolveDrive(throttle, brake, reverse, forwardSpeed(body))
 
-  vehicle.setWheelSteering(0, steering)
-  vehicle.setWheelSteering(1, steering)
+  for (const i of engineWheels) vehicle.setWheelEngineForce(i, engineForce)
+  for (let i = 0; i < wheelCount; i++) vehicle.setWheelBrake(i, brakeForce)
+  for (const i of steerWheels) vehicle.setWheelSteering(i, steering)
 
-  controllerStates.set(vehicle, { engineForce, steering })
-  return { steering, engineForce }
+  controllerStates.set(vehicle, { steering, keyThrottle, keyBrake })
+  return { steering, engineForce, brakeForce }
+}
+
+/** Clears ramped key state and zeroes engine, brake, and steering. Call on respawn. */
+export function resetDriveState(vehicle: RAPIER.DynamicRayCastVehicleController) {
+  controllerStates.delete(vehicle)
+  for (const i of engineWheels) vehicle.setWheelEngineForce(i, 0)
+  for (let i = 0; i < wheelCount; i++) vehicle.setWheelBrake(i, 0)
+  for (const i of steerWheels) vehicle.setWheelSteering(i, 0)
 }

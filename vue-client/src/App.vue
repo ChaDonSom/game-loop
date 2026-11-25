@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import Datagrams from "@/components/Datagrams.vue"
 import MyVisitorId from "@/components/MyVisitorId.vue"
+import TouchControls from "@/components/TouchControls.vue"
 </script>
 
 <template>
@@ -11,6 +12,7 @@ import MyVisitorId from "@/components/MyVisitorId.vue"
     </div>
     <p style="color: #1a1a24">Simple soapbox cars in a shared physics environment.</p>
   </div>
+  <TouchControls />
 </template>
 
 <style scoped></style>
