@@ -28,7 +28,7 @@ const bumps: BumpPiece[] = Array.from({ length: bumpCount }, (_, i) => ({
   kind: "bump",
   id: `bump-${i}`,
   surface: "road",
-  position: { x: bumpStart.x, y: (bumpHeight * 0.667) * -1, z: bumpStart.z + i * bumpGap },
+  position: { x: bumpStart.x, y: (bumpHeight * 0.75) * -1, z: bumpStart.z + i * bumpGap },
   rotationY: 0,
   length: bumpLength,
   width: bumpWidth,
