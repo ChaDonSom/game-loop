@@ -18,7 +18,7 @@ const STOP_SPEED = 0.3
 /** SLOT. Seconds of key hold from 0 to full throttle or brake. 4 s matches the old ±0.1-per-step force ramp. */
 const KEY_RAMP_UP_S = 4
 /** SLOT. Top speed forward, m/s. */
-const MAX_FORWARD_SPEED = 60
+const MAX_FORWARD_SPEED = 42
 /** SLOT. Top speed in reverse, m/s. */
 const MAX_REVERSE_SPEED = 20
 /** Engine force fades to 0 over this many m/s below top speed, so the car settles at it instead of surging. */
