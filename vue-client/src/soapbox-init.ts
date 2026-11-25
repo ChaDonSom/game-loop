@@ -10,6 +10,9 @@ import {
   handleSteeringAndDrive,
   resetChassisToSpawn,
   resetDriveState,
+  buildTerrainPhysics,
+  applySurfaceGrip,
+  DEFAULT_WORLD,
 } from "@game-loop/shared"
 import {
   initCamera,
@@ -22,13 +25,14 @@ import {
   initScene,
   initWalls as initWallMeshes,
   initWheels as initWheelMeshes,
+  buildTerrainMeshes,
 } from "./three"
 import getGamePadState from "@/input/pad"
 import keys from "@/input/keys"
 import { moveWheelMeshesToWorldCoordinates } from "@/three/wheels"
 import updateCamera from "@/three/camera"
 import { queueControls, stateLagSeconds } from "@/network"
-import { authoritativePlayers, myId, mySpawnIndex } from "@/store/network"
+import { authoritativePlayers, myId, mySpawnIndex, worldMismatch } from "@/store/network"
 import reconcile from "@/physics/reconcile"
 import RenderSmoothing from "@/physics/renderSmoothing"
 
@@ -54,6 +58,9 @@ async function init() {
 
   const walls = initWalls(world)
   initWallMeshes(scene, walls)
+
+  const terrain = buildTerrainPhysics(world, DEFAULT_WORLD.layout)
+  buildTerrainMeshes(scene, terrain)
 
   const chassis = initChassis(world)
   const chassisMesh = initChassisMesh(scene, chassis)
@@ -84,6 +91,8 @@ async function init() {
     const frameDt = Math.min((currentTime - lastFrameTime) / 1000, 0.1)
     lastFrameTime = currentTime
     accumulator += frameDt
+    // Server runs a different world: local prediction would be wrong, so freeze it.
+    if (worldMismatch.value) accumulator = 0
 
     // Start where the server put this car. The client does not know its slot until `welcome` arrives. Reset once per
     // session: a reconnect can get the same slot again, and the server car then starts fresh at it.
@@ -101,6 +110,7 @@ async function init() {
       queueControls({ keys: currentKeys, pad })
       steering = handleSteeringAndDrive(fixedDt, chassis.body, pad, currentKeys, vehicle).steering
 
+      applySurfaceGrip(vehicle, terrain, DEFAULT_WORLD.surfaceGrip)
       vehicle.updateVehicle(fixedDt)
       smoothing.beforeStep()
       world.step()

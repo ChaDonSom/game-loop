@@ -1,8 +1,7 @@
 import RAPIER from "@dimforge/rapier3d-compat"
+import { VEHICLE_DIMENSIONS } from "../vehicle/dimensions.js"
 
-export const chassisWidth = 1.2
-export const chassisHeight = 0.4
-export const chassisLength = 2.4
+export const { width: chassisWidth, height: chassisHeight, length: chassisLength } = VEHICLE_DIMENSIONS.chassis
 
 /** Spawn slots per row. The ramp is 6 m wide (x from -3 to 3), so two cars fit side by side. */
 const SLOTS_PER_ROW = 2

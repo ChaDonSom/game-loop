@@ -22,7 +22,8 @@ npm workspaces. Build order: `shared` → `node-transport` → `vue-client`.
 ## Build and check
 
 - Install: `npm ci --ignore-scripts`. The build does not need the native WebTransport install step.
-- Build and type-check all: `npm run build`. No CI runs on PRs. Run both commands before you push.
+- Build and type-check all: `npm run build`. Run both commands before you push.
+- CI (`.github/workflows/build.yml`) runs `npm ci --ignore-scripts` and `npm run build` on each PR and on each push to `soapbox-car` and `master`.
 - To run the server locally, you need the native step: use plain `npm ci`.
 
 ## Ship a change
@@ -34,6 +35,34 @@ npm workspaces. Build order: `shared` → `node-transport` → `vue-client`.
 3. Fix review findings. Reply to each thread and resolve it.
 4. The owner merges into `soapbox-car`. An agent's work ends at a merge-ready PR.
 5. Deploy is a separate step. The owner deploys by hand over SSH.
+
+## Work with the owner
+
+The owner wants to learn the code by making the real choices, not by reading diffs. Agents remove the plumbing friction. The owner keeps the choose-plug-run friction.
+
+1. **Plan first, in a draft PR.** Before code, open a draft PR against `soapbox-car`. It holds only `notes/plans/<topic>.md`. The owner reviews it with a batched GitHub review ("Start a review", then "Submit review"). Revise the plan. Reply in each thread. Repeat until the owner approves the plan.
+2. **Scaffold, then slots.** Push code that builds and runs: functions in the correct module, wired into the loop, typed, exported. Leave the real decisions as marked slots:
+   - Mark each slot `// YOUR CHOICE: <decision>. <where to look>`.
+   - Tell the owner what to decide and where to look. Do not give the answer.
+   - A slot is a real design or tuning decision. Wiring, imports, and scope are never slots.
+   - Each slot must build and run with a placeholder value.
+3. **Review the owner's choices.** When a result "works but is not what the owner expected", explain why. These cases are the point.
+4. **Questions at any time.** The owner can ask in a review thread or in the session. Answer in the same place.
+
+### Diagrams
+
+- Follow `notes/diagram-legend.md`. Use the same visual for the same thing every time.
+- Show only what is new. Grey out existing context. Show only the context the new code touches.
+- 8 nodes or fewer. If you need more, split the change.
+
+### PR descriptions
+
+Each PR description has:
+
+- **Read in this order:** a numbered file list.
+- **How this fits:** a short paragraph.
+- **What's new:** a diagram that follows the legend.
+- **Test:** what you ran and what you did not run.
 
 ## Deploy (reference)
 

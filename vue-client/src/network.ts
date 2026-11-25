@@ -6,6 +6,7 @@ import {
   mySpawnIndex,
   remotePlayers,
   serverCount,
+  worldMismatch,
   type PlayerSnapshot,
   type VehicleSnapshot,
 } from "@/store/network"
@@ -18,7 +19,9 @@ import {
   type PositionBroadcastMessage,
   type ServerDatagramMessage,
   type VehicleStateMessage,
+  WORLD_VERSION,
 } from "@game-loop/shared"
+import { handleWorldMismatch } from "@/worldMismatch"
 import keys from "@/input/keys"
 import getGamePadState from "@/input/pad"
 
@@ -173,6 +176,11 @@ async function handleIncomingStream(stream: ReadableStream<Uint8Array>) {
         console.log("Received welcome message:", msg)
         myId.value = msg.yourId
         mySpawnIndex.value = msg.spawnIndex
+        if (msg.worldVersion !== WORLD_VERSION) {
+          handleWorldMismatch(msg.worldVersion ?? null)
+          // Leave the server. It then removes this player's car, so no stale input keeps driving it.
+          void getTransport().then((transport) => transport.close())
+        }
         return
       case "state":
         for (const player of msg.players) {
@@ -218,7 +226,7 @@ async function startNetLoop(transport: WebTransport) {
       }
     }
 
-    if (latestControls && !closed) {
+    if (latestControls && !closed && !worldMismatch.value) {
       clientSeq++
       controlsSentAt.set(clientSeq, performance.now())
       if (controlsSentAt.size > MAX_TRACKED_CONTROLS) {
@@ -298,7 +306,8 @@ function handleDisconnect() {
 }
 
 function scheduleReconnect() {
-  if (reconnectTimer || reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) return
+  // A world mismatch is not a network fault: reconnecting would join the wrong world again.
+  if (worldMismatch.value || reconnectTimer || reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) return
 
   reconnectAttempts += 1
   reconnectTimer = setTimeout(() => {

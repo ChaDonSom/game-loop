@@ -1,7 +1,8 @@
 import * as THREE from "three"
+import { VEHICLE_DIMENSIONS } from "@game-loop/shared"
 
 export default function initWheelMeshes(scene: THREE.Scene, radius: number) {
-  const wheelWidth = 0.15
+  const wheelWidth = VEHICLE_DIMENSIONS.wheel.width
   const wheelGeometry = new THREE.CylinderGeometry(radius, radius, wheelWidth, 24)
   wheelGeometry.rotateZ(Math.PI / 2)
   const wheelMaterial = new THREE.MeshStandardMaterial({ color: 0x111111 })
