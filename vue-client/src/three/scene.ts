@@ -33,7 +33,7 @@ export function initRenderer(container: HTMLElement | null) {
   renderer.setSize(window.innerWidth, window.innerHeight)
   renderer.toneMapping = THREE.ACESFilmicToneMapping
   renderer.shadowMap.enabled = true
-  renderer.shadowMap.type = THREE.PCFSoftShadowMap
+  renderer.shadowMap.type = THREE.PCFShadowMap
   container?.appendChild(renderer.domElement)
   return renderer
 }

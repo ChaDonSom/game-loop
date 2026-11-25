@@ -1,11 +1,11 @@
 import RAPIER from "@dimforge/rapier3d-compat"
+import { VEHICLE_DIMENSIONS } from "../vehicle/dimensions.js"
 
 export default function initWheels(
   chassis: { body: RAPIER.RigidBody; width: number; height: number; length: number },
   vehicle: RAPIER.DynamicRayCastVehicleController,
 ) {
-  const wheelRadius = 0.3
-  const suspensionRestLength = 0.3
+  const { radius: wheelRadius, width: wheelWidth, suspensionRestLength } = VEHICLE_DIMENSIONS.wheel
 
   // Relative attachment points for 4 wheels on the chassis [X, Y, Z]
   const wheelOffsets = [
@@ -28,11 +28,12 @@ export default function initWheels(
 
     // Configure wheel suspension & friction properties
     vehicle.setWheelSuspensionStiffness(i, 40.0)
-    vehicle.setWheelFrictionSlip(i, 5.0) // Side slip traction
+    vehicle.setWheelFrictionSlip(i, 5.0) // Side slip traction. applySurfaceGrip overrides it each step.
   })
 
   return {
     radius: wheelRadius,
+    width: wheelWidth,
     suspensionRestLength,
     offset: wheelOffsets,
   }

@@ -27,9 +27,16 @@ export type VehicleState = {
   id: string
   /** Last client `controls` seq the server applied for this player. Used for client reconciliation. */
   ack: number
+  /**
+   * Milliseconds from the server receiving `ack` to taking this snapshot. The client subtracts it from its
+   * send-to-now time for `ack`, so it knows how far this snapshot lags its own prediction.
+   */
+  ackAgeMs: number
   position: Vector3
   rotation: Quaternion
   velocity: Vector3
+  /** Angular velocity in rad/s, world frame. The client needs it to follow the server car's spin in the air. */
+  angularVelocity: Vector3
   steering: number
 }
 
@@ -45,8 +52,12 @@ export type ClientMessage = ClientPositionMessage | ClientControlsMessage
 // #region MARK: Server -> client messages
 // ----------------------------------------------------
 
-/** Stream. Tells a new client its assigned id. */
-export type WelcomeMessage = { type: "welcome"; yourId: string }
+/**
+ * Stream. Tells a new client its assigned id and spawn slot (see `spawnPose`).
+ * `worldVersion`: hash of the server's world data (see `world.ts`). Missing from servers older than the check,
+ * so the client treats a missing value as a mismatch.
+ */
+export type WelcomeMessage = { type: "welcome"; yourId: string; spawnIndex: number; worldVersion?: string }
 /** Stream. Last known positions of the players already connected when a client joins. */
 export type InitialPositionsMessage = { type: "state"; players: Array<{ id: string } & PositionSnapshot> }
 /** Datagram. Once-per-second heartbeat. */
@@ -130,9 +141,12 @@ function isVehicleState(value: unknown): value is VehicleState {
     isObject(value) &&
     typeof value.id === "string" &&
     Number.isInteger(value.ack) &&
+    Number.isFinite(value.ackAgeMs) &&
+    value.ackAgeMs >= 0 &&
     isVector3(value.position) &&
     isQuaternion(value.rotation) &&
     isVector3(value.velocity) &&
+    isVector3(value.angularVelocity) &&
     Number.isFinite(value.steering)
   )
 }
@@ -142,7 +156,12 @@ export function isServerStreamMessage(msg: unknown): msg is ServerStreamMessage 
   if (!isObject(msg)) return false
   switch (msg.type) {
     case "welcome":
-      return typeof msg.yourId === "string"
+      return (
+        typeof msg.yourId === "string" &&
+        Number.isInteger(msg.spawnIndex) &&
+        msg.spawnIndex >= 0 &&
+        (msg.worldVersion === undefined || typeof msg.worldVersion === "string")
+      )
     case "state":
       return (
         Array.isArray(msg.players) &&

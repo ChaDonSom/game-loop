@@ -4,8 +4,8 @@ Planned order for the next features. Saved 2026-11-24.
 
 ## Order
 
-1. **Lighting.** Done in the `lighting` branch.
-2. **Terrain.**
+1. **Lighting.** Done. Merged in ChaDonSom/game-loop#5.
+2. **Terrain.** Plan: `notes/plans/terrain.md`.
 3. **Vehicle spec.**
 4. **Models and colors.**
 

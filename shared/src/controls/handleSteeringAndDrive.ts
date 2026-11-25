@@ -128,10 +128,12 @@ export default function handleSteeringAndDrive(
   return { steering, engineForce, brakeForce }
 }
 
-/** Clears ramped key state and zeroes engine, brake, and steering. Call on respawn. */
+/** Clears ramped key state and steering, and zeroes engine, brake, and steering on every wheel. Call on respawn. */
 export function resetDriveState(vehicle: RAPIER.DynamicRayCastVehicleController) {
   controllerStates.delete(vehicle)
-  for (const i of engineWheels) vehicle.setWheelEngineForce(i, 0)
-  for (let i = 0; i < wheelCount; i++) vehicle.setWheelBrake(i, 0)
-  for (const i of steerWheels) vehicle.setWheelSteering(i, 0)
+  for (let i = 0; i < vehicle.numWheels(); i++) {
+    vehicle.setWheelEngineForce(i, 0)
+    vehicle.setWheelBrake(i, 0)
+    vehicle.setWheelSteering(i, 0)
+  }
 }
