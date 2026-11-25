@@ -1,6 +1,6 @@
 # Plan: terrain (roadmap step 2)
 
-Status: **draft, revision 2. Waiting for owner review.** Comment on any line. Ask anything.
+Status: **approved. Scaffold pushed in this PR.** Your slots are marked `YOUR CHOICE` in the code (see "Your slots").
 
 Revision 2 changes (from your first review): car-scaled bump sizes, bump size and placement grouped, the version check moved into this step, a new section on later tuning, and the diagram updated.
 
@@ -43,7 +43,7 @@ flowchart LR
   init -.-> grip
   init -.-> meshes
   physics -.-> layout
-  meshes -.-> layout
+  meshes -.-> physics
   layout -.-> dims
   class layout,dims,physics,grip,meshes new
   class srv,init changed
@@ -91,9 +91,9 @@ Terrain follows the same idea, with one change: **one layout list is the single 
 
 - `terrain layout` is a plain data list in `shared`. Each item is one piece: kind, position, rotation, and size values.
 - `buildTerrainPhysics` reads the list and makes the Rapier colliders. Server and client both call it.
-- `buildTerrainMeshes` reads the same list and makes the Three.js meshes. Only the client calls it.
+- `buildTerrainMeshes` builds each Three.js mesh from a collider that `buildTerrainPhysics` made. Only the client calls it.
 
-So the collider and the mesh for a piece always come from the same numbers. They cannot drift apart.
+So each mesh comes from its collider, and each collider comes from the layout. They cannot drift apart. (Changed in the scaffold: the plan first had meshes read the layout directly. Reading the collider means a shape you choose in a slot needs no matching mesh code.)
 
 ## Decisions for you to review
 
@@ -176,7 +176,7 @@ I will push a scaffold that builds and runs, with a placeholder in each slot. Yo
 | Bank angle, radius, and placement | `shared/src/terrain/layout.ts` | How steep, how tight, where | Drive around it |
 | Rough patch roughness and placement | `shared/src/terrain/layout.ts` | Height range, grid resolution, where | Drive into it |
 | Surface grip | `shared/src/terrain/surfaces.ts` | `frictionSlip` for road and dirt | Feel the difference |
-| Version mismatch | `vue-client/src/network.ts` | What the client does: reload by itself, or show a notice. Within the two fixed rules in D5 | Try it with two layouts |
+| Version mismatch | `vue-client/src/worldMismatch.ts` | What the client does: reload by itself, or show a notice. Within the two fixed rules in D5 | Try it with two layouts |
 
 The exact file names can change in the scaffold. The slots stay the same.
 

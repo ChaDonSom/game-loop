@@ -9,6 +9,9 @@ import {
   Pad,
   Keys,
   handleSteeringAndDrive,
+  buildTerrainPhysics,
+  applySurfaceGrip,
+  DEFAULT_WORLD,
   type VehicleStateMessage,
 } from "@game-loop/shared"
 import { clamp } from "@game-loop/shared"
@@ -29,6 +32,7 @@ export default async function initServerRapier(broadcastDatagram: (message: Vehi
   initRamp(world)
   initGround(world)
   initWalls(world)
+  const terrain = buildTerrainPhysics(world, DEFAULT_WORLD.layout)
 
   const players = new Map<
     string,
@@ -70,6 +74,7 @@ export default async function initServerRapier(broadcastDatagram: (message: Vehi
         currentControls.keys,
         player.vehicle,
       ).steering
+      applySurfaceGrip(player.vehicle, terrain, DEFAULT_WORLD.surfaceGrip)
       player.vehicle.updateVehicle(1 / 60)
     }
 

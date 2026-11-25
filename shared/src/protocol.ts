@@ -46,7 +46,11 @@ export type ClientMessage = ClientPositionMessage | ClientControlsMessage
 // ----------------------------------------------------
 
 /** Stream. Tells a new client its assigned id. */
-export type WelcomeMessage = { type: "welcome"; yourId: string }
+/**
+ * `worldVersion`: hash of the server's world data (see `world.ts`). Missing from servers older than the check,
+ * so the client treats a missing value as a mismatch.
+ */
+export type WelcomeMessage = { type: "welcome"; yourId: string; worldVersion?: string }
 /** Stream. Last known positions of the players already connected when a client joins. */
 export type InitialPositionsMessage = { type: "state"; players: Array<{ id: string } & PositionSnapshot> }
 /** Datagram. Once-per-second heartbeat. */
@@ -141,7 +145,7 @@ export function isServerStreamMessage(msg: unknown): msg is ServerStreamMessage 
   if (!isObject(msg)) return false
   switch (msg.type) {
     case "welcome":
-      return typeof msg.yourId === "string"
+      return typeof msg.yourId === "string" && (msg.worldVersion === undefined || typeof msg.worldVersion === "string")
     case "state":
       return (
         Array.isArray(msg.players) &&

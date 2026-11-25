@@ -8,6 +8,9 @@ import {
   initChassis,
   initWheels,
   handleSteeringAndDrive,
+  buildTerrainPhysics,
+  applySurfaceGrip,
+  DEFAULT_WORLD,
 } from "@game-loop/shared"
 import {
   initCamera,
@@ -20,13 +23,14 @@ import {
   initScene,
   initWalls as initWallMeshes,
   initWheels as initWheelMeshes,
+  buildTerrainMeshes,
 } from "./three"
 import getGamePadState from "@/input/pad"
 import keys from "@/input/keys"
 import { moveWheelMeshesToWorldCoordinates } from "@/three/wheels"
 import updateCamera from "@/three/camera"
 import { queueControls } from "@/network"
-import { authoritativePlayers, myId } from "@/store/network"
+import { authoritativePlayers, myId, worldMismatch } from "@/store/network"
 
 async function init() {
   const { world } = await initRapier()
@@ -50,6 +54,9 @@ async function init() {
 
   const walls = initWalls(world)
   initWallMeshes(scene, walls)
+
+  const terrain = buildTerrainPhysics(world, DEFAULT_WORLD.layout)
+  buildTerrainMeshes(scene, terrain)
 
   const chassis = initChassis(world)
   const chassisMesh = initChassisMesh(scene, chassis)
@@ -77,6 +84,8 @@ async function init() {
     const frameDt = Math.min((currentTime - lastFrameTime) / 1000, 0.1)
     lastFrameTime = currentTime
     accumulator += frameDt
+    // Server runs a different world: local prediction would be wrong, so freeze it.
+    if (worldMismatch.value) accumulator = 0
 
     while (accumulator >= fixedDt) {
       const pad = getGamePadState()
@@ -84,6 +93,7 @@ async function init() {
       queueControls({ keys: currentKeys, pad })
       steering = handleSteeringAndDrive(fixedDt, chassis.body, pad, currentKeys, vehicle).steering
 
+      applySurfaceGrip(vehicle, terrain, DEFAULT_WORLD.surfaceGrip)
       vehicle.updateVehicle(fixedDt)
       world.step()
       accumulator -= fixedDt

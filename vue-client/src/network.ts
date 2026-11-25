@@ -5,6 +5,7 @@ import {
   myId,
   remotePlayers,
   serverCount,
+  worldMismatch,
   type PlayerSnapshot,
   type VehicleSnapshot,
 } from "@/store/network"
@@ -17,7 +18,9 @@ import {
   type PositionBroadcastMessage,
   type ServerDatagramMessage,
   type VehicleStateMessage,
+  WORLD_VERSION,
 } from "@game-loop/shared"
+import { handleWorldMismatch } from "@/worldMismatch"
 import keys from "@/input/keys"
 import getGamePadState from "@/input/pad"
 
@@ -168,6 +171,7 @@ async function handleIncomingStream(stream: ReadableStream<Uint8Array>) {
       case "welcome":
         console.log("Received welcome message:", msg)
         myId.value = msg.yourId
+        if (msg.worldVersion !== WORLD_VERSION) handleWorldMismatch(msg.worldVersion ?? null)
         return
       case "state":
         for (const player of msg.players) {
@@ -213,7 +217,7 @@ async function startNetLoop(transport: WebTransport) {
       }
     }
 
-    if (latestControls && !closed) {
+    if (latestControls && !closed && !worldMismatch.value) {
       clientSeq++
       try {
         await writer.write(

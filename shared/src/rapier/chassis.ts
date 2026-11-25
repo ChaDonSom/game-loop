@@ -1,9 +1,8 @@
 import RAPIER from "@dimforge/rapier3d-compat"
+import { VEHICLE_DIMENSIONS } from "../vehicle/dimensions.js"
 
 export default function initChassis(world: RAPIER.World, spawnIndex = 0) {
-  const chassisWidth = 1.2,
-    chassisHeight = 0.4,
-    chassisLength = 2.4
+  const { width: chassisWidth, height: chassisHeight, length: chassisLength } = VEHICLE_DIMENSIONS.chassis
 
   // Dynamic rigid body positioned at the top of the ramp
   const chassisBodyDesc = RAPIER.RigidBodyDesc.dynamic()

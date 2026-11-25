@@ -6,6 +6,7 @@ import crypto from "crypto"
 import initServerRapier from "./initServerRapier.js"
 import controls from "./controls.js"
 import {
+  WORLD_VERSION,
   decodeMessage,
   encodeMessage,
   isClientControlsMessage,
@@ -77,7 +78,7 @@ async function handleSession(session: {
   activeSessions.set(visitorId, session)
   simulation.addPlayer(visitorId)
 
-  sendJsonMessage(session, { type: "welcome", yourId: visitorId }).catch((err) => {
+  sendJsonMessage(session, { type: "welcome", yourId: visitorId, worldVersion: WORLD_VERSION }).catch((err) => {
     console.error("Failed to send welcome packet:", err)
   })
 
