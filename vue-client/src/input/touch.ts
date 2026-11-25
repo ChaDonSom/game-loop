@@ -14,8 +14,8 @@ const DEG = Math.PI / 180
 // #region MARK: Slots (tune on a phone)
 // ----------------------------------------------------
 
-/** Wheel degrees per finger degree. At 3, a 150° thumb arc reaches lock. */
-export const WHEEL_GAIN = 3
+/** Wheel degrees per finger degree. At 1 (1:1), the wheel follows the finger; lock needs a 450° finger arc (1.25 turns). */
+export const WHEEL_GAIN = 1
 /** Total wheel turn, lock to lock. */
 export const VISUAL_LOCK = 900 * DEG
 /** Self-centering, in wheel degrees per metre the front wheels roll. */
