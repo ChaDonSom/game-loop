@@ -121,7 +121,8 @@ export function isClientControlsMessage(msg: unknown): msg is ClientControlsMess
     typeof msg.pad.connected === "boolean" &&
     Number.isFinite(msg.pad.steer) &&
     Number.isFinite(msg.pad.throttle) &&
-    Number.isFinite(msg.pad.brake)
+    Number.isFinite(msg.pad.brake) &&
+    (msg.pad.reverse === undefined || typeof msg.pad.reverse === "boolean")
   )
 }
 

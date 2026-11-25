@@ -3,13 +3,25 @@
   <head>
     <meta charset="UTF-8" />
     <link rel="icon" href="/favicon.ico" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <title>Soapbox cars</title>
+    <!-- Add to Home Screen opens without the browser bar (Android: manifest; iOS: apple meta tags). -->
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <link rel="apple-touch-icon" href="/icon-180.png" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="theme-color" content="#111111" />
     <style>
       body {
         margin: 0;
         overflow: hidden;
         background-color: #111;
+        /* Driving surface: no pull-to-refresh, pinch zoom, or text selection on touch. */
+        overscroll-behavior: none;
+        touch-action: none;
+        -webkit-user-select: none;
+        user-select: none;
       }
       #canvas-container {
         width: 100vw;

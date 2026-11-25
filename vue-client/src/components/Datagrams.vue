@@ -4,7 +4,7 @@ import { connectionStatus, serverCount } from "@/store/network"
 </script>
 
 <template>
-  <div>
-    <StatusChip :connection-status="connectionStatus"> Count from server: {{ serverCount ?? "—" }} </StatusChip>
-  </div>
+  <StatusChip :connection-status="connectionStatus" title="Players on the server">
+    {{ serverCount ?? "—" }}
+  </StatusChip>
 </template>

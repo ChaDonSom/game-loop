@@ -16,6 +16,7 @@ import {
   isServerDatagramMessage,
   isServerStreamMessage,
   type ClientMessage,
+  type Pad,
   type PositionBroadcastMessage,
   type ServerDatagramMessage,
   type VehicleStateMessage,
@@ -23,7 +24,6 @@ import {
 } from "@game-loop/shared"
 import { handleWorldMismatch } from "@/worldMismatch"
 import keys from "@/input/keys"
-import getGamePadState from "@/input/pad"
 
 const MS_PER_UPDATE = 1000 / 30 // ~30 updates per second
 const MAX_RECONNECT_ATTEMPTS = 3
@@ -36,7 +36,7 @@ interface PositionInput {
 
 interface ControlsInput {
   keys: typeof keys
-  pad: ReturnType<typeof getGamePadState>
+  pad: Pad
 }
 
 const networkBuffer: PositionInput[] = []
