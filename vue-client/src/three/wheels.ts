@@ -1,4 +1,3 @@
-import type RAPIER from "@dimforge/rapier3d-compat"
 import * as THREE from "three"
 import { VEHICLE_DIMENSIONS } from "@game-loop/shared"
 
@@ -20,19 +19,17 @@ export default function initWheelMeshes(scene: THREE.Scene, radius: number) {
 }
 
 const tempWheelPos = new THREE.Vector3()
-const tempChassisQuat = new THREE.Quaternion()
 /**
- * Moves the wheel meshes to their correct world coordinates based on the vehicle's current state and chassis orientation.
+ * Moves the wheel meshes to their correct world coordinates based on the vehicle's current state and the drawn
+ * chassis pose. Use the mesh pose, not the physics body: the mesh is the smoothed pose, and the wheels must match it.
  */
 export function moveWheelMeshesToWorldCoordinates(
   vehicle: any,
   wheelMeshes: THREE.Mesh[],
-  chassis: { body: RAPIER.RigidBody; mesh: THREE.Mesh },
+  chassisMesh: THREE.Mesh,
   steering: number,
 ) {
-  const cRot = chassis.body.rotation()
-
-  tempChassisQuat.set(cRot.x, cRot.y, cRot.z, cRot.w)
+  const tempChassisQuat = chassisMesh.quaternion
   for (let i = 0; i < vehicle.numWheels(); i++) {
     const connectionPoint = vehicle.wheelChassisConnectionPointCs(i)
     const suspensionLength = vehicle.wheelSuspensionLength(i)
@@ -44,7 +41,7 @@ export function moveWheelMeshesToWorldCoordinates(
 
     // Convert chassis-local position into world space.
     tempWheelPos.applyQuaternion(tempChassisQuat)
-    tempWheelPos.add(chassis.mesh.position)
+    tempWheelPos.add(chassisMesh.position)
     wheelMeshes[i]?.position.copy(tempWheelPos)
 
     // Start with the chassis orientation.

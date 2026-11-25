@@ -35,6 +35,8 @@ export type VehicleState = {
   position: Vector3
   rotation: Quaternion
   velocity: Vector3
+  /** Angular velocity in rad/s, world frame. The client needs it to follow the server car's spin in the air. */
+  angularVelocity: Vector3
   steering: number
 }
 
@@ -143,6 +145,7 @@ function isVehicleState(value: unknown): value is VehicleState {
     isVector3(value.position) &&
     isQuaternion(value.rotation) &&
     isVector3(value.velocity) &&
+    isVector3(value.angularVelocity) &&
     Number.isFinite(value.steering)
   )
 }
