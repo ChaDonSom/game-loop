@@ -23,8 +23,8 @@ export class Roster {
   }
 
   /**
-   * Applies `welcome`: `ids` were the players connected at `rosterSeq`. A known id that is not in `ids` had left by then,
-   * unless a newer event for it already arrived.
+   * Applies `welcome`: `ids` were the players connected at `rosterSeq`. A known id that is not in `ids` had left by
+   * then, unless a newer event for it already arrived.
    */
   applySnapshot(ids: string[], rosterSeq: number) {
     const listed = new Set(ids)

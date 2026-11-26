@@ -52,10 +52,17 @@ export function updateCanFlip(dt: number, stuck: boolean) {
   if (next !== canFlip.value) canFlip.value = next
 }
 
-/** Call on a new session (each `welcome`). The server counts presses from 0 for a new player. */
+/**
+ * Call on each new connection, before any `controls` goes out. The server counts presses from 0 for a new player, so
+ * an old count would make it ignore the next presses.
+ */
+export function resetFlipCount() {
+  flipCount = 0
+}
+
+/** Call on respawn: no pending press, and the button waits for a new stuck time. */
 export function resetFlip() {
   pendingPress = false
-  flipCount = 0
   stuckSeconds = 0
   if (canFlip.value) canFlip.value = false
 }

@@ -25,6 +25,7 @@ import {
 } from "@game-loop/shared"
 import { handleWorldMismatch } from "@/worldMismatch"
 import { Roster } from "@/roster"
+import { resetFlipCount } from "@/input/flip"
 import keys from "@/input/keys"
 
 const MS_PER_UPDATE = 1000 / 30 // ~30 updates per second
@@ -70,6 +71,9 @@ export async function initNetwork() {
     const transport = await getTransport()
     // A new connection can be to a restarted server, whose `rosterSeq` starts again from 0.
     resetRoster()
+    // The server counts flip presses from 0 for this new player. Drop the queued controls too: they hold the old count.
+    resetFlipCount()
+    latestControls = null
     connectionStatus.value = "connected"
     reconnectAttempts = 0
     syncHotState()
@@ -375,6 +379,14 @@ export function stateLagSeconds(ack: number, ackAgeMs: number): number | null {
   const sentAt = controlsSentAt.get(ack)
   if (sentAt === undefined) return null
   return Math.max(0, performance.now() - sentAt - ackAgeMs) / 1000
+}
+
+/**
+ * Seq of the last datagram this client sent. A `controls` queued now goes out with a higher seq, so a server state with
+ * `ack` at or below this value does not show it yet.
+ */
+export function lastSentSeq() {
+  return clientSeq
 }
 
 export function queueNetworkUpdate(update: PositionInput) {

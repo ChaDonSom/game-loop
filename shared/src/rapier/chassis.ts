@@ -75,14 +75,21 @@ function unitRotation(q: { x: number; y: number; z: number; w: number }) {
  */
 export function isSpawnClear(world: RAPIER.World, spawnIndex: number) {
   const pose = spawnPose(spawnIndex)
+  return isChassisBoxClear(world, pose.translation, unitRotation(pose.rotation), {
+    flags: RAPIER.QueryFilterFlags.EXCLUDE_FIXED,
+  })
+}
+
+/** True when a chassis box at this pose touches no collider that the filter keeps. */
+function isChassisBoxClear(
+  world: RAPIER.World,
+  translation: RAPIER.Vector,
+  rotation: RAPIER.Rotation,
+  filter: { flags?: RAPIER.QueryFilterFlags; excludeBody?: RAPIER.RigidBody },
+) {
   const box = new RAPIER.Cuboid(chassisWidth / 2, chassisHeight / 2, chassisLength / 2)
-  const hit = world.intersectionWithShape(
-    pose.translation,
-    unitRotation(pose.rotation),
-    box,
-    RAPIER.QueryFilterFlags.EXCLUDE_FIXED,
-  )
-  return hit === null
+  const { flags, excludeBody } = filter
+  return world.intersectionWithShape(translation, rotation, box, flags, undefined, undefined, excludeBody) === null
 }
 
 /**
@@ -102,6 +109,8 @@ const STUCK_MAX_SPIN = 1
  * `wheels.ts`. Too low, and the wheels start inside the ground. Too high, and the car drops hard.
  */
 const FLIP_LIFT = 1
+/** If the lifted spot is blocked (under the ramp, at a wall), try this many more lifts, each `FLIP_LIFT` higher. */
+const FLIP_EXTRA_TRIES = 2
 
 /** True when the car lies on its side or roof and has come to rest, so a flip may put it back on its wheels. */
 export function isStuckUpsideDown(body: RAPIER.RigidBody) {
@@ -114,10 +123,12 @@ export function isStuckUpsideDown(body: RAPIER.RigidBody) {
 }
 
 /**
- * Puts the car upright, with the same heading, `FLIP_LIFT` higher, at rest. Call `resetDriveState` after it. Server and
- * client both run it, so the client prediction matches the server.
+ * Puts the car upright, with the same heading, `FLIP_LIFT` higher, at rest. If that spot is blocked, tries higher. If
+ * every spot is blocked, does nothing and returns false. Call `resetDriveState` after a flip. Server and client both
+ * run it, so the client prediction matches the server. (The client world has no remote cars, so near another car the
+ * two can pick different heights. `reconcile` then corrects it.)
  */
-export function flipUpright(body: RAPIER.RigidBody) {
+export function flipUpright(world: RAPIER.World, body: RAPIER.RigidBody) {
   const { forward, right } = chassisAxes(body.rotation())
   // Heading on the ground plane. If the nose points almost straight up or down, the right axis still lies flat.
   let fx = forward.x
@@ -128,9 +139,16 @@ export function flipUpright(body: RAPIER.RigidBody) {
   }
   // Upright yaw θ has forward = (−sin θ, 0, −cos θ).
   const yaw = Math.atan2(-fx, -fz)
-  body.setRotation({ x: 0, y: Math.sin(yaw / 2), z: 0, w: Math.cos(yaw / 2) }, true)
+  const rotation = { x: 0, y: Math.sin(yaw / 2), z: 0, w: Math.cos(yaw / 2) }
   const p = body.translation()
-  body.setTranslation({ x: p.x, y: p.y + FLIP_LIFT, z: p.z }, true)
-  body.setLinvel({ x: 0, y: 0, z: 0 }, true)
-  body.setAngvel({ x: 0, y: 0, z: 0 }, true)
+  for (let tries = 1; tries <= 1 + FLIP_EXTRA_TRIES; tries++) {
+    const translation = { x: p.x, y: p.y + FLIP_LIFT * tries, z: p.z }
+    if (!isChassisBoxClear(world, translation, rotation, { excludeBody: body })) continue
+    body.setRotation(rotation, true)
+    body.setTranslation(translation, true)
+    body.setLinvel({ x: 0, y: 0, z: 0 }, true)
+    body.setAngvel({ x: 0, y: 0, z: 0 }, true)
+    return true
+  }
+  return false
 }

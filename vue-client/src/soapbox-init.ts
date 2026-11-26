@@ -43,7 +43,7 @@ import keys from "@/input/keys"
 import { frontRolling, getTouchPad, resetWheel, touchVisible, updateWheel } from "@/input/touch"
 import { moveWheelMeshesToWorldCoordinates } from "@/three/wheels"
 import updateCamera from "@/three/camera"
-import { queueControls, stateLagSeconds } from "@/network"
+import { lastSentSeq, queueControls, stateLagSeconds } from "@/network"
 import { authoritativePlayers, myId, mySpawnIndex, worldMismatch } from "@/store/network"
 import reconcile from "@/physics/reconcile"
 import RenderSmoothing from "@/physics/renderSmoothing"
@@ -99,6 +99,11 @@ async function init() {
   let lastFrameTime = performance.now()
   let accumulator = 0
   let lastReconciledAck = 0
+  /**
+   * Server states with an `ack` below this are older than the last local flip. They still show the car on its roof, so
+   * a correction toward them would undo the flip for one round trip.
+   */
+  let firstAckAfterFlip = 0
   let steering = 0
   /** Session (`myId`) whose spawn the local car was last reset to. Each `welcome` gives a new id. */
   let spawnedForId: string | null = null
@@ -124,6 +129,7 @@ async function init() {
       smoothing.reset()
       spawnedForId = myId.value
       lastReconciledAck = 0
+      firstAckAfterFlip = 0
     }
 
     const physicsStart = performance.now()
@@ -138,8 +144,8 @@ async function init() {
 
       // A flip press goes to the server in `controls`. The server runs the same rule on the same step.
       pollGamepadFlip(gamepad.connected && gamepadButtonHeld(GAMEPAD_FLIP_BUTTON))
-      if (takeFlipPress() && isStuckUpsideDown(chassis.body)) {
-        flipUpright(chassis.body)
+      if (takeFlipPress() && isStuckUpsideDown(chassis.body) && flipUpright(world, chassis.body)) {
+        firstAckAfterFlip = lastSentSeq() + 1
         resetDriveState(vehicle)
         resetWheel()
         smoothing.reset()
@@ -159,7 +165,7 @@ async function init() {
     const physicsMs = performance.now() - physicsStart
 
     const localSnapshot = myId.value ? authoritativePlayers.value[myId.value] : undefined
-    if (localSnapshot && localSnapshot.ack > lastReconciledAck) {
+    if (localSnapshot && localSnapshot.ack > lastReconciledAck && localSnapshot.ack >= firstAckAfterFlip) {
       const lag = stateLagSeconds(localSnapshot.ack, localSnapshot.ackAgeMs) ?? 0
       smoothing.beginCorrection()
       reconcile(chassis.body, localSnapshot, lag)

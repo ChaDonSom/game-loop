@@ -113,8 +113,7 @@ export default async function initServerRapier(sendState: (message: VehicleState
       const flipCount = currentControls.flip ?? 0
       if (flipCount > player.flipCount) {
         player.flipCount = flipCount
-        if (isStuckUpsideDown(player.chassis.body)) {
-          flipUpright(player.chassis.body)
+        if (isStuckUpsideDown(player.chassis.body) && flipUpright(world, player.chassis.body)) {
           resetDriveState(player.vehicle)
         }
       }
