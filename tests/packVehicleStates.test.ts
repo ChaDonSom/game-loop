@@ -58,3 +58,15 @@ test("a car bigger than the budget still goes, alone", () => {
 test("no cars: no parts", () => {
   assert.equal(packVehicleStates([], 1, 1000, MAX).length, 0)
 })
+
+test("hand-built JSON matches encodeMessage of the rounded states", () => {
+  const players = Array.from({ length: 5 }, (_, i) => car(i))
+  const parts = packVehicleStates(players, 7, 1234, MAX)
+  type StateMessage = { type: string; seq: number; players: VehicleState[]; t: number }
+  const messages = parts.map((part) => decodeMessage(part) as StateMessage)
+  for (const msg of messages) assert.deepEqual({ ...msg, players: [] }, { type: "state", seq: 7, players: [], t: 1234 })
+  assert.deepEqual(
+    messages.flatMap((msg) => msg.players),
+    players.map(roundVehicleState),
+  )
+})

@@ -14,6 +14,13 @@
  */
 import type { Keys, Pad } from "./controls/types.js"
 
+/**
+ * Raise on any change that an old client or server cannot read. It goes into `WORLD_VERSION` (see `world.ts`), so a
+ * stale tab gets the version notice instead of a half-working protocol.
+ * 2: `state` in parts, `join` and `leave` on streams, `controls.flip`.
+ */
+export const PROTOCOL_VERSION = 2
+
 // ----------------------------------------------------
 // #region MARK: Shared value shapes
 // ----------------------------------------------------
@@ -27,7 +34,10 @@ export type PositionSnapshot = { seq: number; x: number; y: number; t: number }
 /** Server-authoritative physics state of one player's vehicle. */
 export type VehicleState = {
   id: string
-  /** Last client `controls` seq the server applied for this player. Used for client reconciliation. */
+  /**
+   * Last client `controls` seq that a server physics step applied for this player (not just received). So a state
+   * with `ack >= N` includes input N. Used for client reconciliation.
+   */
   ack: number
   /**
    * Milliseconds from the server receiving `ack` to taking this snapshot. The client subtracts it from its
@@ -48,8 +58,9 @@ export type VehicleState = {
 
 export type ClientPositionMessage = { type: "pos"; seq: number; x: number; y: number }
 /**
- * `flip`: count of flip presses this session. It rides in every `controls`, so a lost datagram does not lose a press.
- * The server flips the car when the count goes up and the car is stuck (`isStuckUpsideDown`). Missing = 0.
+ * `flip`: count of flip presses. It rides in every `controls`, so a lost datagram does not lose a press. The server
+ * treats any change of the count as a press (it drops out-of-order datagrams), and flips the car if it is stuck
+ * (`tryFlip`). So the count never needs a reset. Missing = 0.
  */
 export type ClientControlsMessage = { type: "controls"; seq: number; keys: Keys; pad: Pad; flip?: number }
 export type ClientMessage = ClientPositionMessage | ClientControlsMessage
@@ -110,25 +121,31 @@ export function encodeMessage(message: ClientMessage | ServerStreamMessage | Ser
 export const FALLBACK_MAX_DATAGRAM_BYTES = 1100
 
 /**
- * Encodes one tick of vehicle states as one or more `state` datagrams, each at most `maxBytes` long. All parts keep
- * the same `seq`. A vehicle never splits, so a part always holds at least one vehicle, even if that one is too big.
+ * Encodes one tick of vehicle states as one or more `state` datagrams, each at most `maxBytes` long. Rounds each state
+ * for the wire first (`roundVehicleState`). All parts keep the same `seq`. A vehicle never splits, so a part always
+ * holds at least one vehicle, even if that one is too big.
+ *
+ * Builds the JSON text by hand, with the same key order as `encodeMessage`, so each vehicle is encoded once. The text
+ * is ASCII (UUID ids, numbers), so its length in characters is its length in bytes.
  */
 export function packVehicleStates(players: VehicleState[], seq: number, t: number, maxBytes: number): Uint8Array[] {
+  const head = `{"type":"state","seq":${seq},"players":[`
+  const tail = `],"t":${t}}`
   const parts: Uint8Array[] = []
-  let current: VehicleState[] = []
-  let currentBytes: Uint8Array | null = null
+  let entries: string[] = []
+  let length = head.length + tail.length
   for (const player of players) {
-    const candidate = encodeMessage({ type: "state", seq, players: [...current, player], t })
-    if (currentBytes && candidate.length > maxBytes) {
-      parts.push(currentBytes)
-      current = [player]
-      currentBytes = encodeMessage({ type: "state", seq, players: current, t })
-      continue
+    const entry = JSON.stringify(roundVehicleState(player))
+    // Every entry but the first adds a comma.
+    if (entries.length > 0 && length + 1 + entry.length > maxBytes) {
+      parts.push(encoder.encode(head + entries.join(",") + tail))
+      entries = []
+      length = head.length + tail.length
     }
-    current.push(player)
-    currentBytes = candidate
+    length += (entries.length > 0 ? 1 : 0) + entry.length
+    entries.push(entry)
   }
-  if (currentBytes) parts.push(currentBytes)
+  if (entries.length > 0) parts.push(encoder.encode(head + entries.join(",") + tail))
   return parts
 }
 
@@ -148,20 +165,29 @@ function round(value: number, decimals: number) {
   return Math.round(value * scale) / scale
 }
 
-function roundVector<T extends Record<string, number>>(vector: T, decimals: number): T {
-  const out = {} as Record<string, number>
-  for (const key in vector) out[key] = round(vector[key], decimals)
-  return out as T
+function roundVector3(v: Vector3, decimals: number): Vector3 {
+  return { x: round(v.x, decimals), y: round(v.y, decimals), z: round(v.z, decimals) }
 }
 
-/** Rounds a vehicle state for the wire. The shape stays the same. The rotation can be off unit length by ~1e-4. */
+/**
+ * Rounds a vehicle state for the wire, into plain objects (Rapier vectors in, JSON-ready objects out). The shape stays
+ * the same. The rotation can be off unit length by ~1e-4.
+ */
 export function roundVehicleState(state: VehicleState): VehicleState {
+  const q = state.rotation
   return {
-    ...state,
-    position: roundVector(state.position, POSITION_DECIMALS),
-    rotation: roundVector(state.rotation, ROTATION_DECIMALS),
-    velocity: roundVector(state.velocity, VELOCITY_DECIMALS),
-    angularVelocity: roundVector(state.angularVelocity, SPIN_DECIMALS),
+    id: state.id,
+    ack: state.ack,
+    ackAgeMs: state.ackAgeMs,
+    position: roundVector3(state.position, POSITION_DECIMALS),
+    rotation: {
+      x: round(q.x, ROTATION_DECIMALS),
+      y: round(q.y, ROTATION_DECIMALS),
+      z: round(q.z, ROTATION_DECIMALS),
+      w: round(q.w, ROTATION_DECIMALS),
+    },
+    velocity: roundVector3(state.velocity, VELOCITY_DECIMALS),
+    angularVelocity: roundVector3(state.angularVelocity, SPIN_DECIMALS),
     steering: round(state.steering, STEERING_DECIMALS),
   }
 }

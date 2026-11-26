@@ -2,22 +2,16 @@ import { DEFAULT_TERRAIN_LAYOUT } from "./terrain/layout.js"
 import { DEFAULT_SURFACE_GRIP, type SurfaceGrip } from "./terrain/surfaces.js"
 import type { TerrainLayout } from "./terrain/types.js"
 import { VEHICLE_DIMENSIONS, type VehicleDimensions } from "./vehicle/dimensions.js"
+import { PROTOCOL_VERSION } from "./protocol.js"
 
 /** Every shared simulation input that is data. Server and client must hold the same values. */
 export type WorldConfig = {
-  /**
-   * Wire protocol version. Not world data, but server and client must agree on it too, and the hash check already
-   * exists. Raise it on any change that an old client or server cannot read.
-   * 2: `state` in parts, `join` and `leave` on streams (plan `issue-12-flip-multiplayer-portrait.md`).
-   */
-  protocolVersion: number
   layout: TerrainLayout
   surfaceGrip: SurfaceGrip
   vehicle: VehicleDimensions
 }
 
 export const DEFAULT_WORLD: WorldConfig = {
-  protocolVersion: 2,
   layout: DEFAULT_TERRAIN_LAYOUT,
   surfaceGrip: DEFAULT_SURFACE_GRIP,
   vehicle: VEHICLE_DIMENSIONS,
@@ -36,11 +30,12 @@ function canonicalJson(value: unknown): string {
 }
 
 /**
- * Short hash (FNV-1a, 32-bit) of the world data. Any data edit changes it. Builder code changes do not.
- * The server sends it in `welcome`. The client compares it with its own.
+ * Short hash (FNV-1a, 32-bit) of the world data and the wire protocol version. Any data edit, or a new
+ * `PROTOCOL_VERSION`, changes it. Builder code changes do not. The server sends it in `welcome`. The client compares it
+ * with its own.
  */
-export function computeWorldVersion(config: WorldConfig): string {
-  const text = canonicalJson(config)
+export function computeWorldVersion(config: WorldConfig, protocolVersion = PROTOCOL_VERSION): string {
+  const text = canonicalJson({ protocolVersion, world: config })
   let hash = 0x811c9dc5
   for (let i = 0; i < text.length; i++) {
     hash ^= text.charCodeAt(i)

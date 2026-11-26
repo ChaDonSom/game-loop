@@ -11,10 +11,7 @@ import { ref } from "vue"
  */
 const FLIP_BUTTON_DELAY_S = 0.5
 
-/** Gamepad button for flip. Standard mapping: 3 is the top face button (Y on Xbox, triangle on PlayStation). */
-export const GAMEPAD_FLIP_BUTTON = 3
-
-/** True while the flip button shows. Changes only when the value changes, so there is no re-render each frame. */
+/** True while the flip button shows. A Vue ref ignores a write of the same value, so steps cost no re-render. */
 export const canFlip = ref(false)
 
 let pendingPress = false
@@ -40,7 +37,7 @@ export function takeFlipPress() {
   return true
 }
 
-/** Flip presses this session, for `controls.flip`. */
+/** Flip presses so far, for `controls.flip`. The server reacts to any change, so it never resets. */
 export function getFlipCount() {
   return flipCount
 }
@@ -48,23 +45,14 @@ export function getFlipCount() {
 /** Call each physics step. Shows the button once the car has been stuck for `FLIP_BUTTON_DELAY_S`. */
 export function updateCanFlip(dt: number, stuck: boolean) {
   stuckSeconds = stuck ? stuckSeconds + dt : 0
-  const next = stuckSeconds >= FLIP_BUTTON_DELAY_S
-  if (next !== canFlip.value) canFlip.value = next
-}
-
-/**
- * Call on each new connection, before any `controls` goes out. The server counts presses from 0 for a new player, so
- * an old count would make it ignore the next presses.
- */
-export function resetFlipCount() {
-  flipCount = 0
+  canFlip.value = stuckSeconds >= FLIP_BUTTON_DELAY_S
 }
 
 /** Call on respawn: no pending press, and the button waits for a new stuck time. */
 export function resetFlip() {
   pendingPress = false
   stuckSeconds = 0
-  if (canFlip.value) canFlip.value = false
+  canFlip.value = false
 }
 
 window.addEventListener("keydown", (e) => {

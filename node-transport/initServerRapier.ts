@@ -13,10 +13,7 @@ import {
   applySurfaceGrip,
   DEFAULT_WORLD,
   isSpawnClear,
-  isStuckUpsideDown,
-  flipUpright,
-  resetDriveState,
-  roundVehicleState,
+  tryFlip,
   type VehicleStateMessage,
 } from "@game-loop/shared"
 import { clamp } from "@game-loop/shared"
@@ -48,6 +45,12 @@ export default async function initServerRapier(sendState: (message: VehicleState
       spawnIndex: number
       /** Last `flip` count from this player's `controls` that the server acted on. */
       flipCount: number
+      /**
+       * The `controls` the last physics step applied: its seq and receive time. Sent as `ack`, so a state with
+       * `ack >= N` includes input N. The last received seq is not enough: a broadcast can fall between receipt and
+       * the next step.
+       */
+      applied: { seq: number; t: number } | null
     }
   >()
   const defaultControls = {
@@ -88,7 +91,7 @@ export default async function initServerRapier(sendState: (message: VehicleState
     const chassis = initChassis(world, spawnIndex)
     const vehicle = world.createVehicleController(chassis.body)
     initWheels(chassis, vehicle)
-    players.set(id, { chassis, vehicle, steering: 0, spawnIndex, flipCount: 0 })
+    players.set(id, { chassis, vehicle, steering: 0, spawnIndex, flipCount: 0, applied: null })
     return spawnIndex
   }
 
@@ -109,13 +112,12 @@ export default async function initServerRapier(sendState: (message: VehicleState
   function update() {
     for (const [id, player] of players) {
       const currentControls = controls[id] ?? defaultControls
-      // A new press flips the car only if it is stuck here too. The client runs the same rule in the same step.
+      if (controls[id]) player.applied = { seq: currentControls.seq, t: currentControls.t }
+      // Any change of the count is a press: out-of-order datagrams are already dropped, so it never needs a reset.
       const flipCount = currentControls.flip ?? 0
-      if (flipCount > player.flipCount) {
+      if (flipCount !== player.flipCount) {
         player.flipCount = flipCount
-        if (isStuckUpsideDown(player.chassis.body) && flipUpright(world, player.chassis.body)) {
-          resetDriveState(player.vehicle)
-        }
+        tryFlip(world, player.chassis.body, player.vehicle)
       }
       player.steering = handleSteeringAndDrive(
         1 / 60,
@@ -136,23 +138,17 @@ export default async function initServerRapier(sendState: (message: VehicleState
     sendState({
       type: "state",
       seq: ++stateSeq,
-      players: Array.from(players, ([id, player]) => {
-        const position = player.chassis.body.translation()
-        const rotation = player.chassis.body.rotation()
-        const velocity = player.chassis.body.linvel()
-        const angularVelocity = player.chassis.body.angvel()
-        const playerControls = controls[id]
-        return roundVehicleState({
-          id,
-          ack: playerControls?.seq ?? 0,
-          ackAgeMs: playerControls ? Math.max(0, now - playerControls.t) : 0,
-          position: { x: position.x, y: position.y, z: position.z },
-          rotation: { x: rotation.x, y: rotation.y, z: rotation.z, w: rotation.w },
-          velocity: { x: velocity.x, y: velocity.y, z: velocity.z },
-          angularVelocity: { x: angularVelocity.x, y: angularVelocity.y, z: angularVelocity.z },
-          steering: player.steering,
-        })
-      }),
+      // Rapier vectors as is: `packVehicleStates` rounds them into plain objects for the wire.
+      players: Array.from(players, ([id, { chassis, applied, steering }]) => ({
+        id,
+        ack: applied?.seq ?? 0,
+        ackAgeMs: applied ? Math.max(0, now - applied.t) : 0,
+        position: chassis.body.translation(),
+        rotation: chassis.body.rotation(),
+        velocity: chassis.body.linvel(),
+        angularVelocity: chassis.body.angvel(),
+        steering,
+      })),
       t: now,
     })
   }

@@ -151,10 +151,7 @@ async function handleSession(session: Session) {
   }, 1000)
 
   const connectedAt = Date.now()
-  let cleanedUp = false
   const cleanup = () => {
-    if (cleanedUp) return
-    cleanedUp = true
     clearInterval(interval)
     if (session.visitorId) {
       activeSessions.delete(session.visitorId)
@@ -166,7 +163,7 @@ async function handleSession(session: Session) {
     }
   }
 
-  session.closed.then(cleanup).catch(cleanup)
+  session.closed.then(cleanup, cleanup)
 }
 
 /** The session's datagram size limit, or the fallback if it reports none. */

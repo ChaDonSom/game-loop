@@ -152,7 +152,7 @@ flowchart LR
 
 `packVehicleStates(states, seq, t, maxBytes)` goes in `shared/src/protocol.ts`, next to the codec. It returns a list of encoded `VehicleStateMessage` parts. `roster` is a new client store next to `authoritativePlayers` in `vue-client/src/store/network.ts`: id to `{ present, rosterSeq }`.
 
-`protocol` changes: `welcome` gains two fields, `join` and the stream `leave` are new, and the datagram `leave` goes away. An old client cannot read the new roster. Deploy server and client together, as `deploy.sh` does. So `WorldConfig` gains `protocolVersion`, and this change sets it to 2. `WORLD_VERSION` then changes, and a stale tab gets the existing mismatch notice instead of a half-working roster.
+`protocol` changes: `welcome` gains two fields, `join` and the stream `leave` are new, and the datagram `leave` goes away. An old client cannot read the new roster. Deploy server and client together, as `deploy.sh` does. So `protocol.ts` gains `PROTOCOL_VERSION = 2`, and `WORLD_VERSION` hashes it with the world data. The version then changes, and a stale tab gets the existing mismatch notice instead of a half-working roster.
 
 ### M7. Tests
 
@@ -199,7 +199,7 @@ Then call `resetDriveState(vehicle)`.
 Add `flip?: number` to `ClientControlsMessage`: the count of flip presses this session.
 
 - The client sends the counter in every `controls` datagram, so a lost datagram does not lose the press.
-- The server keeps the last value it applied for each player. When a new value is higher, the server runs the flip if `isStuckUpsideDown` is true there. Otherwise it only stores the new value.
+- The server keeps the last value it saw for each player. Any change is a press (out-of-order datagrams are already dropped), so the count never needs a reset, even across reconnects. On a press, the server runs `tryFlip`: it flips only if the car is stuck there and the lifted spot is clear.
 - Validator: `flip` is missing, or a non-negative integer.
 - An old server ignores the field. An old client never sends it.
 
@@ -213,7 +213,7 @@ So the counter is better here.
 
 ### F5. Client prediction
 
-On a press, the client adds 1 to the counter and runs `flipUpright` on its own car in the same physics step. The server flips about one uplink later. `reconcile` then sees a small error. If the server refused (its car was not stuck), the next `state` snaps the client car back. That is correct.
+On a press, the client adds 1 to the counter and runs the same `tryFlip` on its own car in the same physics step. The server flips about one uplink later. Server states that predate the flip still show the car on its roof, so the client skips every state whose `ack` is at or below the last datagram it sent before the flip. For this, `ack` is the seq of the controls that a server physics step **applied**, not just received: the 30 Hz broadcast runs apart from the physics steps. If the server refused (its car was not stuck), the next `state` snaps the client car back. That is correct.
 
 ### F6. Button
 

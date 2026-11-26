@@ -9,7 +9,6 @@ import {
   serverCount,
   worldMismatch,
   type PlayerSnapshot,
-  type VehicleSnapshot,
 } from "@/store/network"
 import {
   decodeMessage,
@@ -25,7 +24,6 @@ import {
 } from "@game-loop/shared"
 import { handleWorldMismatch } from "@/worldMismatch"
 import { Roster } from "@/roster"
-import { resetFlipCount } from "@/input/flip"
 import keys from "@/input/keys"
 
 const MS_PER_UPDATE = 1000 / 30 // ~30 updates per second
@@ -71,9 +69,6 @@ export async function initNetwork() {
     const transport = await getTransport()
     // A new connection can be to a restarted server, whose `rosterSeq` starts again from 0.
     resetRoster()
-    // The server counts flip presses from 0 for this new player. Drop the queued controls too: they hold the old count.
-    resetFlipCount()
-    latestControls = null
     connectionStatus.value = "connected"
     reconnectAttempts = 0
     syncHotState()
@@ -188,7 +183,7 @@ async function handleIncomingStream(stream: ReadableStream<Uint8Array>) {
         if (msg.worldVersion !== WORLD_VERSION) {
           handleWorldMismatch(msg.worldVersion ?? null)
           // Leave the server. It then removes this player's car, so no stale input keeps driving it.
-          void getTransport().then((transport) => transport.close())
+          closeTransport()
         }
         return
       case "state":
@@ -301,27 +296,20 @@ function upsertRemotePlayer(msg: Pick<PositionBroadcastMessage, "id" | "seq" | "
  */
 function upsertAuthoritativePlayers(msg: VehicleStateMessage) {
   const time = performance.now()
-  let next: Record<string, VehicleSnapshot> | null = null
   for (const player of msg.players) {
     if (!roster.has(player.id)) continue
     if (msg.seq <= (lastVehicleSeq.get(player.id) ?? -1)) continue // drop duplicate or out-of-order state
     lastVehicleSeq.set(player.id, msg.seq)
-    next ??= { ...authoritativePlayers.value }
-    next[player.id] = { ...player, seq: msg.seq, time }
+    authoritativePlayers.value[player.id] = { ...player, seq: msg.seq, time }
   }
-  if (next) authoritativePlayers.value = next
 }
 
 /** Drops every player the roster no longer has, and updates the count. */
 function syncRoster() {
   playerCount.value = roster.size
-  const kept: Record<string, VehicleSnapshot> = {}
-  let removed = false
-  for (const [id, snapshot] of Object.entries(authoritativePlayers.value)) {
-    if (roster.has(id)) kept[id] = snapshot
-    else removed = true
+  for (const id of Object.keys(authoritativePlayers.value)) {
+    if (!roster.has(id)) delete authoritativePlayers.value[id]
   }
-  if (removed) authoritativePlayers.value = kept
   for (const id of Object.keys(remotePlayers.value)) {
     if (!roster.has(id)) delete remotePlayers.value[id]
   }

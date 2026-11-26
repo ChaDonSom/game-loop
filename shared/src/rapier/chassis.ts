@@ -1,6 +1,7 @@
 import RAPIER from "@dimforge/rapier3d-compat"
 import { VEHICLE_DIMENSIONS } from "../vehicle/dimensions.js"
-import { chassisAxes, rotateByQuat } from "../math.js"
+import { chassisAxes } from "../math.js"
+import { resetDriveState } from "../controls/handleSteeringAndDrive.js"
 
 export const { width: chassisWidth, height: chassisHeight, length: chassisLength } = VEHICLE_DIMENSIONS.chassis
 
@@ -10,6 +11,8 @@ const SLOT_X = [-1.5, 1.5]
 /** Each row is 3 m further down the ramp. The ramp drops ~0.55 m in height per metre of z. */
 const ROW_Z_STEP = 3
 const ROW_Y_STEP = ROW_Z_STEP * 0.554
+
+const SPAWN_ROTATION = { x: 0, y: 1 / Math.hypot(1, 0.2), z: 0.2 / Math.hypot(1, 0.2), w: 0 }
 
 /**
  * Start pose for a spawn slot. Server and client both use it, so a client starts its car where the server does.
@@ -23,8 +26,8 @@ export function spawnPose(spawnIndex: number) {
       y: 7 - row * ROW_Y_STEP,
       z: -12 + row * ROW_Z_STEP,
     },
-    // Quaternion (x, y, z, w). Rapier normalizes it. Faces the car down the ramp.
-    rotation: { x: 0, y: 1, z: 0.2, w: 0 },
+    // Faces the car down the ramp: (0, 1, 0.2, 0) at unit length. Shape queries need a unit quaternion.
+    rotation: SPAWN_ROTATION,
   }
 }
 
@@ -56,18 +59,17 @@ export default function initChassis(world: RAPIER.World, spawnIndex = 0) {
 /** Moves a chassis body back to a spawn slot and stops it. */
 export function resetChassisToSpawn(body: RAPIER.RigidBody, spawnIndex: number) {
   const pose = spawnPose(spawnIndex)
-  body.setTranslation(pose.translation, true)
-  body.setRotation(pose.rotation, true)
+  placeAtRest(body, pose.translation, pose.rotation)
+}
+
+/** Moves a body to a pose and stops it. */
+function placeAtRest(body: RAPIER.RigidBody, translation: RAPIER.Vector, rotation: RAPIER.Rotation) {
+  body.setTranslation(translation, true)
+  body.setRotation(rotation, true)
   body.setLinvel({ x: 0, y: 0, z: 0 }, true)
   body.setAngvel({ x: 0, y: 0, z: 0 }, true)
 }
 
-
-/** Spawn pose rotation at unit length. Shape queries need a unit quaternion. Rapier normalizes it only for bodies. */
-function unitRotation(q: { x: number; y: number; z: number; w: number }) {
-  const length = Math.hypot(q.x, q.y, q.z, q.w)
-  return { x: q.x / length, y: q.y / length, z: q.z / length, w: q.w / length }
-}
 
 /**
  * True when no car is on the spot of a spawn slot. Tests a chassis box at the slot pose against cars only: fixed
@@ -75,9 +77,7 @@ function unitRotation(q: { x: number; y: number; z: number; w: number }) {
  */
 export function isSpawnClear(world: RAPIER.World, spawnIndex: number) {
   const pose = spawnPose(spawnIndex)
-  return isChassisBoxClear(world, pose.translation, unitRotation(pose.rotation), {
-    flags: RAPIER.QueryFilterFlags.EXCLUDE_FIXED,
-  })
+  return isChassisBoxClear(world, pose.translation, pose.rotation, RAPIER.QueryFilterFlags.EXCLUDE_FIXED)
 }
 
 /** True when a chassis box at this pose touches no collider that the filter keeps. */
@@ -85,10 +85,10 @@ function isChassisBoxClear(
   world: RAPIER.World,
   translation: RAPIER.Vector,
   rotation: RAPIER.Rotation,
-  filter: { flags?: RAPIER.QueryFilterFlags; excludeBody?: RAPIER.RigidBody },
+  flags?: RAPIER.QueryFilterFlags,
+  excludeBody?: RAPIER.RigidBody,
 ) {
   const box = new RAPIER.Cuboid(chassisWidth / 2, chassisHeight / 2, chassisLength / 2)
-  const { flags, excludeBody } = filter
   return world.intersectionWithShape(translation, rotation, box, flags, undefined, undefined, excludeBody) === null
 }
 
@@ -114,19 +114,30 @@ const FLIP_EXTRA_TRIES = 2
 
 /** True when the car lies on its side or roof and has come to rest, so a flip may put it back on its wheels. */
 export function isStuckUpsideDown(body: RAPIER.RigidBody) {
-  const up = rotateByQuat(body.rotation(), { x: 0, y: 1, z: 0 })
+  // World-up part of the car's up axis, from the quaternion. The client runs this each step, so it reads the
+  // velocities only when the tilt test passes.
+  const q = body.rotation()
+  if (1 - 2 * (q.x * q.x + q.z * q.z) >= STUCK_MAX_UP) return false
   const v = body.linvel()
   const w = body.angvel()
-  return (
-    up.y < STUCK_MAX_UP && Math.hypot(v.x, v.y, v.z) < STUCK_MAX_SPEED && Math.hypot(w.x, w.y, w.z) < STUCK_MAX_SPIN
-  )
+  return Math.hypot(v.x, v.y, v.z) < STUCK_MAX_SPEED && Math.hypot(w.x, w.y, w.z) < STUCK_MAX_SPIN
+}
+
+/**
+ * The flip rule, for server and client alike: if the car is stuck, put it upright and reset its drive state. Returns
+ * true if it flipped. The client predicts with the same function, so the two cannot drift apart.
+ */
+export function tryFlip(world: RAPIER.World, body: RAPIER.RigidBody, vehicle: RAPIER.DynamicRayCastVehicleController) {
+  if (!isStuckUpsideDown(body) || !flipUpright(world, body)) return false
+  resetDriveState(vehicle)
+  return true
 }
 
 /**
  * Puts the car upright, with the same heading, `FLIP_LIFT` higher, at rest. If that spot is blocked, tries higher. If
- * every spot is blocked, does nothing and returns false. Call `resetDriveState` after a flip. Server and client both
- * run it, so the client prediction matches the server. (The client world has no remote cars, so near another car the
- * two can pick different heights. `reconcile` then corrects it.)
+ * every spot is blocked, does nothing and returns false. Use `tryFlip`, which also checks the car is stuck. (The
+ * client world has no remote cars, so near another car the client and server can pick different heights. `reconcile`
+ * then corrects it.)
  */
 export function flipUpright(world: RAPIER.World, body: RAPIER.RigidBody) {
   const { forward, right } = chassisAxes(body.rotation())
@@ -143,11 +154,8 @@ export function flipUpright(world: RAPIER.World, body: RAPIER.RigidBody) {
   const p = body.translation()
   for (let tries = 1; tries <= 1 + FLIP_EXTRA_TRIES; tries++) {
     const translation = { x: p.x, y: p.y + FLIP_LIFT * tries, z: p.z }
-    if (!isChassisBoxClear(world, translation, rotation, { excludeBody: body })) continue
-    body.setRotation(rotation, true)
-    body.setTranslation(translation, true)
-    body.setLinvel({ x: 0, y: 0, z: 0 }, true)
-    body.setAngvel({ x: 0, y: 0, z: 0 }, true)
+    if (!isChassisBoxClear(world, translation, rotation, undefined, body)) continue
+    placeAtRest(body, translation, rotation)
     return true
   }
   return false

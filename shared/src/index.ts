@@ -9,6 +9,7 @@ export {
   isSpawnClear,
   isStuckUpsideDown,
   flipUpright,
+  tryFlip,
 } from "./rapier/chassis.js"
 export { default as initWheels } from "./rapier/wheels.js"
 export type { Pad } from "./controls/types.js"
