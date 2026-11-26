@@ -1,3 +1,4 @@
+import { perfOptions } from "@/debug/perfHud"
 import * as THREE from "three"
 
 const SKY_COLOR = 0xa9d2f0
@@ -29,10 +30,10 @@ export function initCamera() {
 
 export function initRenderer(container: HTMLElement | null) {
   const renderer = new THREE.WebGLRenderer({ antialias: true })
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2))
+  renderer.setPixelRatio(perfOptions.pixelRatio ?? Math.min(window.devicePixelRatio, 2))
   renderer.setSize(window.innerWidth, window.innerHeight)
   renderer.toneMapping = THREE.ACESFilmicToneMapping
-  renderer.shadowMap.enabled = true
+  renderer.shadowMap.enabled = !perfOptions.noShadow
   renderer.shadowMap.type = THREE.PCFShadowMap
   container?.appendChild(renderer.domElement)
   return renderer

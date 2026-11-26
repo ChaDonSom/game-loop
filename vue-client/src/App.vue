@@ -2,6 +2,8 @@
 import Datagrams from "@/components/Datagrams.vue"
 import TouchControls from "@/components/TouchControls.vue"
 import { worldMismatch } from "@/store/network"
+import { cycleQuality, qualityLevel, qualityOverridden, qualitySetting } from "@/three/quality"
+import { touchVisible, wheelFlick, wheelLockSetting } from "@/input/touch"
 import { onBeforeUnmount, onMounted, ref } from "vue"
 
 /** Fullscreen on a phone hides the browser's reload button. */
@@ -41,6 +43,18 @@ async function toggleFullscreen() {
   }
 }
 
+const quality = qualitySetting.value
+
+// Touch wheel settings. Shown only while the touch controls are.
+const flick = wheelFlick.value
+const lockDeg = wheelLockSetting.value
+function toggleFlick() {
+  wheelFlick.set(flick.value === "on" ? "off" : "on")
+}
+function onLockInput(e: Event) {
+  wheelLockSetting.set(Number((e.target as HTMLInputElement).value))
+}
+
 onMounted(() => {
   document.addEventListener("fullscreenchange", syncFullscreen)
   document.addEventListener("webkitfullscreenchange", syncFullscreen)
@@ -65,6 +79,40 @@ onBeforeUnmount(() => {
     >
       {{ isFullscreen ? "⤡" : "⛶" }}
     </button>
+    <button
+      v-if="!qualityOverridden"
+      type="button"
+      class="pill"
+      :title="`Render quality: ${quality}${quality === 'auto' ? ` (step ${qualityLevel})` : ''}. Tap to change.`"
+      :aria-label="`Render quality: ${quality}`"
+      @click="cycleQuality"
+    >
+      Q {{ quality }}{{ quality === "auto" && qualityLevel > 0 ? ` −${qualityLevel}` : "" }}
+    </button>
+    <template v-if="touchVisible">
+      <button
+        type="button"
+        class="pill"
+        :class="{ off: flick !== 'on' }"
+        :title="`Flick with momentum: ${flick}`"
+        :aria-label="`Flick with momentum: ${flick}`"
+        @click="toggleFlick"
+      >
+        flick
+      </button>
+      <label class="pill lock" title="Wheel turn, lock to lock">
+        lock {{ lockDeg }}°
+        <input
+          type="range"
+          :min="wheelLockSetting.min"
+          :max="wheelLockSetting.max"
+          step="30"
+          :value="lockDeg"
+          aria-label="Wheel turn, lock to lock, degrees"
+          @input="onLockInput"
+        />
+      </label>
+    </template>
     <p class="tagline">Simple soapbox cars in a shared physics environment.</p>
   </div>
   <div
@@ -88,6 +136,7 @@ onBeforeUnmount(() => {
   z-index: 11;
 }
 .pill {
+  white-space: nowrap;
   padding: 2px 8px;
   border: 0;
   border-radius: 999px;
@@ -96,6 +145,19 @@ onBeforeUnmount(() => {
   font: 600 12px/1.4 system-ui, sans-serif;
   cursor: pointer;
   touch-action: manipulation;
+}
+.pill.lock {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  cursor: default;
+}
+.pill.lock input {
+  width: 90px;
+  accent-color: #ffd166;
+}
+.pill.off {
+  opacity: 0.5;
 }
 .tagline {
   margin: 0 0 0 4px;

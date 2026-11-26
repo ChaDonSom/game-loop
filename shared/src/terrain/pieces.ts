@@ -1,6 +1,7 @@
 import RAPIER from "@dimforge/rapier3d-compat"
 import { seededRandom } from "./random.js"
-import type { BankedTurnPiece, BumpPiece, RoughPatchPiece, TerrainPiece } from "./types.js"
+import { GROUND_CLEARANCE, bankedPathGeometry } from "./bankedPath.js"
+import type { BankedPathPiece, BumpPiece, RampPiece, RoughPatchPiece, TerrainPiece } from "./types.js"
 
 /**
  * Collider shapes for each piece, in the piece's own frame (origin on the ground, facing +Z).
@@ -11,15 +12,14 @@ export function pieceColliders(piece: TerrainPiece): RAPIER.ColliderDesc[] {
   switch (piece.kind) {
     case "bump":
       return [bumpCollider(piece)]
-    case "bankedTurn":
-      return [bankedTurnCollider(piece)]
+    case "bankedPath":
+      return [bankedPathCollider(piece)]
+    case "ramp":
+      return [rampCollider(piece)]
     case "roughPatch":
       return [roughPatchCollider(piece)]
   }
 }
-
-/** Lifts flat pieces just above the ground, so the wheel rays hit them first and they do not flicker. */
-const GROUND_CLEARANCE = 0.01
 
 // 90 degrees (PI / 2) around the Z-axis: sin(PI/4) ≈ 0.7071, cos(PI/4) ≈ 0.7071
 const rotZ90 = { x: 0, y: 0, z: Math.SQRT1_2, w: Math.SQRT1_2 }
@@ -86,43 +86,37 @@ function roughPatchCollider(piece: RoughPatchPiece): RAPIER.ColliderDesc {
   })
 }
 
-/** Shape of a banked turn. Shared by the collider and (through it) the client mesh. */
-export function bankedTurnGeometry(piece: BankedTurnPiece) {
-  const across = 4 // vertices across the road, minus one
-  const centerRadius = piece.innerRadius + piece.roadWidth / 2
-  const vertices: number[] = []
-  const indices: number[] = []
-
-  for (let s = 0; s <= piece.segments; s++) {
-    const theta = (s / piece.segments) * piece.arc
-    // Tilt eases in and out at each end, so you can drive on and off from flat ground.
-    const endDistance = Math.min(theta, piece.arc - theta)
-    const ease = piece.easeArc > 0 ? Math.min(1, endDistance / piece.easeArc) : 1
-    const tilt = Math.tan(piece.bankAngle * (ease * ease * (3 - 2 * ease)))
-    const cos = Math.cos(theta)
-    const sin = Math.sin(theta)
-
-    for (let a = 0; a <= across; a++) {
-      const offset = (a / across) * piece.roadWidth // 0 at the inner edge
-      const radius = piece.innerRadius + offset
-      // Circle centre at (-centerRadius, 0): theta = 0 is the origin, heading +Z, bending toward -X.
-      vertices.push(-centerRadius + radius * cos, GROUND_CLEARANCE + offset * tilt, radius * sin)
-    }
-  }
-
-  const row = across + 1
-  for (let s = 0; s < piece.segments; s++) {
-    for (let a = 0; a < across; a++) {
-      const i = s * row + a
-      // Counter-clockwise seen from above, so the face normals point up.
-      indices.push(i, i + row, i + 1, i + 1, i + row, i + row + 1)
-    }
-  }
-
-  return { vertices: new Float32Array(vertices), indices: new Uint32Array(indices) }
+function bankedPathCollider(piece: BankedPathPiece): RAPIER.ColliderDesc {
+  const { vertices, indices } = bankedPathGeometry(piece)
+  return RAPIER.ColliderDesc.trimesh(vertices, indices)
 }
 
-function bankedTurnCollider(piece: BankedTurnPiece): RAPIER.ColliderDesc {
-  const { vertices, indices } = bankedTurnGeometry(piece)
+/**
+ * Shape of a ramp: a closed wedge, low edge at z = 0 on the ground, high edge at z = length. Both edges are lifted by
+ * GROUND_CLEARANCE, like the road surfaces they meet, so the join has no step.
+ */
+export function rampGeometry(piece: RampPiece) {
+  const w = piece.width / 2
+  const l = piece.length
+  const h = GROUND_CLEARANCE + piece.height
+  // 0-1: low edge, 2-3: high edge top, 4-5: high edge bottom.
+  // prettier-ignore
+  const vertices = new Float32Array([
+    -w, GROUND_CLEARANCE, 0,  w, GROUND_CLEARANCE, 0,
+    -w, h, l,                 w, h, l,
+    -w, 0, l,                 w, 0, l,
+  ])
+  // Slope (normal up and back), back wall (normal +Z), two side triangles. Counter-clockwise seen from outside.
+  // prettier-ignore
+  const indices = new Uint32Array([
+    0, 2, 1,  1, 2, 3,
+    2, 4, 3,  3, 4, 5,
+    0, 4, 2,  1, 3, 5,
+  ])
+  return { vertices, indices }
+}
+
+function rampCollider(piece: RampPiece): RAPIER.ColliderDesc {
+  const { vertices, indices } = rampGeometry(piece)
   return RAPIER.ColliderDesc.trimesh(vertices, indices)
 }

@@ -1,6 +1,11 @@
 import RAPIER from "@dimforge/rapier3d-compat"
 import { VEHICLE_DIMENSIONS } from "../vehicle/dimensions.js"
 
+/** Distance from the chassis center to each axle, along the chassis. Front = −z (the nose). */
+export function axleOffsetZ(chassisLength: number) {
+  return chassisLength / 3
+}
+
 export default function initWheels(
   chassis: { body: RAPIER.RigidBody; width: number; height: number; length: number },
   vehicle: RAPIER.DynamicRayCastVehicleController,
@@ -9,10 +14,10 @@ export default function initWheels(
 
   // Relative attachment points for 4 wheels on the chassis [X, Y, Z]
   const wheelOffsets = [
-    new RAPIER.Vector3(chassis.width / 2, -chassis.height / 6, -chassis.length / 3), // Front-Right
-    new RAPIER.Vector3(-chassis.width / 2, -chassis.height / 6, -chassis.length / 3), // Front-Left
-    new RAPIER.Vector3(chassis.width / 2, -chassis.height / 6, chassis.length / 3), // Rear-Right
-    new RAPIER.Vector3(-chassis.width / 2, -chassis.height / 6, chassis.length / 3), // Rear-Left
+    new RAPIER.Vector3(chassis.width / 2, -chassis.height / 6, -axleOffsetZ(chassis.length)), // Front-Right
+    new RAPIER.Vector3(-chassis.width / 2, -chassis.height / 6, -axleOffsetZ(chassis.length)), // Front-Left
+    new RAPIER.Vector3(chassis.width / 2, -chassis.height / 6, axleOffsetZ(chassis.length)), // Rear-Right
+    new RAPIER.Vector3(-chassis.width / 2, -chassis.height / 6, axleOffsetZ(chassis.length)), // Rear-Left
   ]
 
   wheelOffsets.forEach((offset, i) => {

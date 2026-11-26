@@ -5,6 +5,7 @@
  */
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue"
 import keys from "@/input/keys"
+import { perfOptions } from "@/debug/perfHud"
 import {
   EDGE_MARGIN,
   PEDAL_H_FRAC,
@@ -14,6 +15,7 @@ import {
   gear,
   getPedal,
   getWheelAngle,
+  getWheelTarget,
   grabWheel,
   longPressGear,
   moveWheel,
@@ -30,6 +32,13 @@ const CONTROL_OPACITY = 0.75
 const GEAR_IDLE_OPACITY = 0.45
 const LONG_PRESS_MS = 600
 const HIT_FRAC = 1.15
+// YOUR CHOICE: the gap arc shows when the gap (wheel degrees) is larger than this. A normal corner vs a slide.
+const ARC_SHOW_GAP_DEG = 20
+// YOUR CHOICE: above this gap (wheel degrees) the arc gets the `big` class (see `.gap-arc.big` in the CSS).
+// YOUR CHOICE: the arc look itself is `.gap-arc` and `.gap-arc.big` in the <style> block below.
+const ARC_BIG_GAP_DEG = 180
+/** The arc never draws more than this (wheel degrees). A larger gap gets an arrowhead: "keep going". */
+const ARC_MAX_DEG = 330
 
 // ----------------------------------------------------
 // #region MARK: Layout (recomputed on resize only)
@@ -49,6 +58,7 @@ const layout = computed(() => {
   const isPhone = coarsePointer.matches && S < 500
   const R = S * (isPhone ? PHONE_WHEEL_RADIUS_FRAC : WHEEL_RADIUS_FRAC)
   const hitR = R * HIT_FRAC
+  const wheelInset = EDGE_MARGIN + R
   const pedalW = S * PEDAL_W_FRAC
   const pedalH = S * PEDAL_H_FRAC
   const gap = EDGE_MARGIN
@@ -56,8 +66,8 @@ const layout = computed(() => {
     wheel: {
       width: px(hitR * 2),
       height: px(hitR * 2),
-      left: inset("left", EDGE_MARGIN + R - hitR),
-      bottom: inset("bottom", EDGE_MARGIN + R - hitR),
+      left: inset("left", wheelInset - hitR),
+      bottom: inset("bottom", wheelInset - hitR),
       opacity: CONTROL_OPACITY,
     },
     wheelSvg: { width: px(R * 2), height: px(R * 2) },
@@ -80,6 +90,9 @@ const layout = computed(() => {
       right: inset("right", EDGE_MARGIN),
       bottom: inset("bottom", EDGE_MARGIN + pedalH + 8),
     },
+    // Bottom half, left of the pedal and gear column (with a margin), so a touch that just misses a pedal never
+    // reaches the wheel.
+    steerZone: { right: inset("right", EDGE_MARGIN * 2 + pedalW * 2 + gap) },
   }
 })
 
@@ -88,19 +101,33 @@ const layout = computed(() => {
 // ----------------------------------------------------
 
 const wheelEl = ref<HTMLElement | null>(null)
-const wheelGroup = ref<SVGGElement | null>(null)
+const wheelSvg = ref<SVGSVGElement | null>(null)
+let wheelRotate = ""
 let wheelPointer: number | null = null
 let wheelCenter = { x: 0, y: 0, radius: 1 }
 
+/** Element that holds the wheel pointer's capture: the wheel itself, or the bottom-half steer zone. */
+let wheelCaptureEl: HTMLElement | null = null
+
+/**
+ * Any pointer-down on the wheel, or in the bottom half of the screen left of the pedals (the steer zone), grabs the
+ * wheel, measured from the wheel center. A new touch on the wheel takes over from the current one, so a fast second
+ * grab is never dropped (the old touch may not have sent its pointerup yet). A zone touch never takes over.
+ */
 function onWheelDown(e: PointerEvent) {
-  if (wheelPointer !== null || !wheelEl.value) return
+  if (!wheelEl.value) return
+  if (wheelPointer !== null) {
+    // Only a touch on the wheel itself takes over. A zone touch must not steal steering from the thumb on it.
+    if (e.currentTarget !== wheelEl.value) return
+    endWheelPointer()
+  }
   const rect = wheelEl.value.getBoundingClientRect()
   const hitR = rect.width / 2
   const center = { x: rect.left + hitR, y: rect.top + hitR, radius: hitR / HIT_FRAC }
   const dx = e.clientX - center.x
   const dy = e.clientY - center.y
-  if (Math.hypot(dx, dy) > hitR) return
-  wheelEl.value.setPointerCapture(e.pointerId)
+  wheelCaptureEl = e.currentTarget as HTMLElement
+  wheelCaptureEl.setPointerCapture(e.pointerId)
   wheelPointer = e.pointerId
   wheelCenter = center
   grabWheel(dx, dy, center.radius)
@@ -111,10 +138,17 @@ function onWheelMove(e: PointerEvent) {
   moveWheel(e.clientX - wheelCenter.x, e.clientY - wheelCenter.y, wheelCenter.radius)
 }
 
+/** Pointer up, cancel, or a lost capture: all end the drag. */
 function onWheelUp(e: PointerEvent) {
-  if (e.pointerId !== wheelPointer) return
-  wheelEl.value?.releasePointerCapture(e.pointerId)
+  if (e.pointerId === wheelPointer) endWheelPointer()
+}
+
+function endWheelPointer() {
+  if (wheelPointer !== null && wheelCaptureEl?.hasPointerCapture(wheelPointer)) {
+    wheelCaptureEl.releasePointerCapture(wheelPointer)
+  }
   wheelPointer = null
+  wheelCaptureEl = null
   releaseWheel()
 }
 
@@ -183,8 +217,7 @@ function endGear(tap: boolean) {
 const drivingKeys = new Set(Object.keys(keys))
 
 function releaseAll() {
-  wheelPointer = null
-  releaseWheel()
+  endWheelPointer()
   for (const name of ["throttle", "brake"] as const) {
     pedalPointers[name] = null
     setPedal(name, 0)
@@ -210,11 +243,69 @@ watch(touchVisible, (visible) => {
 // #region MARK: Per-frame visuals
 // ----------------------------------------------------
 
+const gapArc = ref<SVGCircleElement | null>(null)
+const gapArcTurn = ref<HTMLElement | null>(null)
+const gapHeadTurn = ref<HTMLElement | null>(null)
+const gapHead = ref<SVGPathElement | null>(null)
+
+const RAD_TO_DEG = 180 / Math.PI
+/** Last values written to the arc, so unchanged frames touch no DOM. */
+const arcState = { shown: false, rotate: "", dash: "", big: false, head: "" }
+
+/**
+ * Gap arc: from the current notch to the target, along the rim. Hidden when the gap is small.
+ * Drawn as a circle with a dash (`pathLength` 360, so dash units are degrees) turned into place, plus a turned
+ * arrowhead. Only transforms and the dash change per frame: no SVG geometry, so no layout each frame.
+ */
+function drawGapArc(angle: number, target: number) {
+  const arc = gapArc.value
+  const head = gapHead.value
+  const arcTurn = gapArcTurn.value
+  const headTurn = gapHeadTurn.value
+  if (!arc || !head || !arcTurn || !headTurn) return
+  const gapDeg = (target - angle) * RAD_TO_DEG
+  const shown = !perfOptions.noArc && Math.abs(gapDeg) > ARC_SHOW_GAP_DEG
+  if (shown !== arcState.shown) {
+    arcState.shown = shown
+    arc.style.display = shown ? "" : "none"
+  }
+  if (!shown) {
+    if (arcState.head) {
+      arcState.head = ""
+      head.style.display = "none"
+    }
+    return
+  }
+  const angleDeg = angle * RAD_TO_DEG
+  const spanDeg = Math.sign(gapDeg) * Math.min(Math.abs(gapDeg), ARC_MAX_DEG)
+  // A circle's stroke starts at 3 o'clock and runs clockwise. Wheel angles start at 12 o'clock: −90°.
+  const rotate = `rotate(${(Math.min(angleDeg, angleDeg + spanDeg) - 90).toFixed(0)}deg)`
+  // Whole degrees: the layer repaints only when the dash changes, not on every tiny change of the target.
+  const dash = `${Math.abs(spanDeg).toFixed(0)} 360`
+  if (rotate !== arcState.rotate) arcTurn.style.transform = arcState.rotate = rotate
+  if (dash !== arcState.dash) arc.setAttribute("stroke-dasharray", (arcState.dash = dash))
+  const big = Math.abs(gapDeg) > ARC_BIG_GAP_DEG
+  if (big !== arcState.big) arc.classList.toggle("big", (arcState.big = big))
+  // Arrowhead at the far end when the gap is longer than the arc can show. Drawn at 12 o'clock pointing clockwise.
+  const headTransform =
+    Math.abs(gapDeg) > ARC_MAX_DEG ? `rotate(${(angleDeg + spanDeg).toFixed(1)}deg) scaleX(${Math.sign(spanDeg)})` : ""
+  if (headTransform !== arcState.head) {
+    arcState.head = headTransform
+    head.style.display = headTransform ? "" : "none"
+    if (headTransform) headTurn.style.transform = headTransform
+  }
+}
+
 let frame = 0
 function draw() {
   frame = requestAnimationFrame(draw)
   if (!touchVisible.value) return
-  wheelGroup.value?.setAttribute("transform", `rotate(${(getWheelAngle() * 180) / Math.PI})`)
+  const angle = getWheelAngle()
+  const target = getWheelTarget()
+  // CSS transform on the whole <svg> box: the compositor turns it. Turning SVG content forces a layout each frame.
+  const rotate = `rotate(${(angle * RAD_TO_DEG).toFixed(2)}deg)`
+  if (wheelSvg.value && rotate !== wheelRotate) wheelSvg.value.style.transform = wheelRotate = rotate
+  drawGapArc(angle, target)
   for (const name of ["throttle", "brake"] as const) {
     const fill = pedalFills[name].value
     if (fill) fill.style.height = `${getPedal(name) * 100}%`
@@ -248,6 +339,16 @@ const brakeFill = pedalFills.brake
 
 <template>
   <div v-show="touchVisible" class="touch-root" @contextmenu.prevent>
+    <!-- Bottom half: a missed grab still grabs the wheel. Under the other controls, so they keep their own touches. -->
+    <div
+      class="steer-zone"
+      :style="layout.steerZone"
+      @pointerdown="onWheelDown"
+      @pointermove="onWheelMove"
+      @pointerup="onWheelUp"
+      @pointercancel="onWheelUp"
+      @lostpointercapture="onWheelUp"
+    />
     <div
       ref="wheelEl"
       class="control wheel"
@@ -256,9 +357,10 @@ const brakeFill = pedalFills.brake
       @pointermove="onWheelMove"
       @pointerup="onWheelUp"
       @pointercancel="onWheelUp"
+      @lostpointercapture="onWheelUp"
     >
-      <svg viewBox="-1 -1 2 2" :style="layout.wheelSvg" aria-hidden="true">
-        <g ref="wheelGroup">
+      <svg ref="wheelSvg" class="wheel-face" viewBox="-1 -1 2 2" :style="layout.wheelSvg" aria-hidden="true">
+        <g>
           <circle r="0.86" fill="none" stroke="#1d1d22" stroke-width="0.2" />
           <circle r="0.86" fill="none" stroke="#e8e8ec" stroke-width="0.08" />
           <g stroke="#e8e8ec" stroke-width="0.12" stroke-linecap="round">
@@ -270,6 +372,20 @@ const brakeFill = pedalFills.brake
           <rect x="-0.06" y="-0.98" width="0.12" height="0.24" rx="0.03" fill="#ff8a1f" />
         </g>
       </svg>
+      <!--
+        Gap arc and arrowhead: each in its own HTML layer, turned with a CSS transform on the layer. That runs on the
+        compositor. Turning SVG content instead (attribute or CSS) forces a layout every frame.
+      -->
+      <div ref="gapArcTurn" class="gap-layer">
+        <svg viewBox="-1 -1 2 2" :style="layout.wheelSvg" aria-hidden="true">
+          <circle ref="gapArc" class="gap-arc" r="1.05" pathLength="360" style="display: none" />
+        </svg>
+      </div>
+      <div ref="gapHeadTurn" class="gap-layer">
+        <svg viewBox="-1 -1 2 2" :style="layout.wheelSvg" aria-hidden="true">
+          <path ref="gapHead" class="gap-head" d="M 0.14 -1.05 L 0 -1.15 L 0 -0.95 Z" style="display: none" />
+        </svg>
+      </div>
     </div>
 
     <div
@@ -335,6 +451,46 @@ const brakeFill = pedalFills.brake
 .wheel svg {
   display: block;
   overflow: visible;
+}
+.steer-zone {
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  height: 50%;
+  pointer-events: auto;
+  touch-action: none;
+  -webkit-tap-highlight-color: transparent;
+}
+/* YOUR CHOICE: the gap arc look. Can you read it without looking straight at the wheel? */
+.gap-arc {
+  fill: none;
+  stroke: #ffd166;
+  stroke-width: 0.1;
+  stroke-linecap: round;
+  opacity: 0.8;
+}
+.gap-arc.big {
+  stroke: #ff6b3d;
+  opacity: 1;
+}
+.wheel-face {
+  will-change: transform;
+}
+.gap-layer {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+  will-change: transform;
+}
+.gap-layer svg {
+  display: block;
+  overflow: visible;
+}
+.gap-head {
+  fill: #ff6b3d;
 }
 .pedal {
   box-sizing: border-box;

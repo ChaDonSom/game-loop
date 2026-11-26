@@ -12,6 +12,7 @@ import {
   resetDriveState,
   buildTerrainPhysics,
   applySurfaceGrip,
+  frontAxleSlip,
   DEFAULT_WORLD,
 } from "@game-loop/shared"
 import {
@@ -36,6 +37,9 @@ import { queueControls, stateLagSeconds } from "@/network"
 import { authoritativePlayers, myId, mySpawnIndex, worldMismatch } from "@/store/network"
 import reconcile from "@/physics/reconcile"
 import RenderSmoothing from "@/physics/renderSmoothing"
+import { perfEnabled, recordFrame, setPerfExtra } from "@/debug/perfHud"
+import { initQuality, qualitySetting } from "@/three/quality"
+import { watch } from "vue"
 
 async function init() {
   const { world } = await initRapier()
@@ -50,6 +54,9 @@ async function init() {
   const renderer = initRenderer(container)
 
   const sun = initLights(scene)
+  const quality = initQuality(renderer, scene, sun)
+  watch(qualitySetting.value, () => quality.sync())
+  setPerfExtra(() => `quality  ${quality.describe()}`)
 
   const ramp = createRamp(world)
   initRampMesh(scene, ramp)
@@ -89,6 +96,8 @@ async function init() {
 
   function animate(currentTime: number) {
     requestAnimationFrame(animate)
+    const jsStart = performance.now()
+    const interval = currentTime - lastFrameTime
     const frameDt = Math.min((currentTime - lastFrameTime) / 1000, 0.1)
     lastFrameTime = currentTime
     accumulator += frameDt
@@ -106,9 +115,11 @@ async function init() {
       lastReconciledAck = 0
     }
 
+    const physicsStart = performance.now()
     while (accumulator >= fixedDt) {
       // Center the touch wheel every step, so it is centered when touch comes back after the gamepad.
-      updateWheel(fixedDt, frontRolling(vehicle, fixedDt, wheelRadius))
+      // The released wheel turns toward the front axle's direction of travel (countersteer in a slide).
+      updateWheel(fixedDt, frontRolling(vehicle, fixedDt, wheelRadius), frontAxleSlip(chassis.body))
       const gamepad = getGamePadState()
       if (gamepad.connected && touchVisible.value) touchVisible.value = false
       const pad = gamepad.connected ? gamepad : touchVisible.value ? getTouchPad() : gamepad
@@ -123,6 +134,7 @@ async function init() {
       smoothing.afterStep()
       accumulator -= fixedDt
     }
+    const physicsMs = performance.now() - physicsStart
 
     const localSnapshot = myId.value ? authoritativePlayers.value[myId.value] : undefined
     if (localSnapshot && localSnapshot.ack > lastReconciledAck) {
@@ -189,7 +201,18 @@ async function init() {
 
     moveWheelMeshesToWorldCoordinates(vehicle, wheelMeshes, chassisMesh, steering)
 
+    const renderStart = performance.now()
     renderer.render(scene, camera)
+    const end = performance.now()
+    if (perfEnabled) recordFrame({
+      interval,
+      physics: physicsMs,
+      render: end - renderStart,
+      total: end - jsStart,
+      calls: renderer.info.render.calls,
+      triangles: renderer.info.render.triangles,
+    })
+    quality.frame(interval)
   }
 
   animate(performance.now())

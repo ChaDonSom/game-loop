@@ -25,23 +25,49 @@ export type BumpPiece = PieceBase & {
   seed: number
 }
 
+/** One piece of a banked path's centre line. */
+export type PathSegment =
+  /** `bank`: signed bank on this straight, radians. Positive = left edge low, as on a left arc. Default 0 (flat). */
+  | { type: "straight"; length: number; bank?: number }
+  /** `radius` is to the centre line. `angle` is how far it turns, radians (Math.PI = 180°). */
+  | { type: "arc"; turn: "left" | "right"; radius: number; angle: number }
+
 /**
- * A turn with a tilted road. Origin: the start of the road's centre line, facing +Z.
- * The turn bends toward -X. The outer edge is the raised edge.
+ * A road along a centre line made of straights and arcs. Origin: the start of the centre line, facing +Z.
+ * +X is the driver's left at the start. Arcs bank toward their centre: the inner edge stays on the ground and the
+ * outer edge lifts. Straights are flat unless they set their own `bank`. The bank changes over `easeLength` at each
+ * segment boundary.
  */
-export type BankedTurnPiece = PieceBase & {
-  kind: "bankedTurn"
-  /** Radius of the inner road edge. */
-  innerRadius: number
+export type BankedPathPiece = PieceBase & {
+  kind: "bankedPath"
   roadWidth: number
-  /** Full tilt, in radians. */
+  segments: PathSegment[]
+  /** Full bank on arcs, radians. */
   bankAngle: number
-  /** How far the turn goes round, in radians. Math.PI = 180°. */
-  arc: number
-  /** Arc, in radians, at each end where the tilt eases from 0 to full. Lets you drive on and off. */
-  easeArc: number
-  /** Number of steps along the arc. More = smoother. */
-  segments: number
+  /** Metres of road over which the bank changes, centred on each segment boundary. */
+  easeLength: number
+  /** Height (m) of a wall on the raised edge. Scales with the bank, so it is 0 where the road is flat. 0 = none. */
+  barrierHeight: number
+  /**
+   * Openings in the barrier, so a ramp can meet the raised edge. `at` is the gap's centre, in metres along the centre
+   * line from the start of the first segment. `side` is which edge.
+   */
+  barrierGaps?: Array<{ at: number; length: number; side: "left" | "right" }>
+  /** The end joins the start. For an oval: the segments must bring the centre line back to the origin. */
+  closed: boolean
+  /** Centre-line samples per metre. More = smoother. */
+  resolution: number
+}
+
+/** A straight wedge to drive up. Origin: centre of its low edge, on the ground. It rises toward +Z. */
+export type RampPiece = PieceBase & {
+  kind: "ramp"
+  /** Along the rise (Z). */
+  length: number
+  /** Across (X). */
+  width: number
+  /** Height of the high edge. */
+  height: number
 }
 
 /** Uneven off-road ground. Origin: centre of the patch, on the ground. */
@@ -57,5 +83,5 @@ export type RoughPatchPiece = PieceBase & {
   seed: number
 }
 
-export type TerrainPiece = BumpPiece | BankedTurnPiece | RoughPatchPiece
+export type TerrainPiece = BumpPiece | BankedPathPiece | RampPiece | RoughPatchPiece
 export type TerrainLayout = TerrainPiece[]

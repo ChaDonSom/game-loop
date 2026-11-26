@@ -1,11 +1,13 @@
 import RAPIER from "@dimforge/rapier3d-compat"
 import { Keys, Pad } from "./types.js"
-import { clamp } from "../math.js"
+import { chassisAxes, clamp, dot } from "../math.js"
 
 const maxEngineForce = 25
 const minEngineForce = -25
-const maxSteering = 0.45
-const minSteering = -0.45
+/** Road-wheel steering angle at full lock, radians (about 26°). */
+export const MAX_STEERING = 0.45
+const maxSteering = MAX_STEERING
+const minSteering = -MAX_STEERING
 
 /**
  * SLOT. Brake impulse per wheel per step at full brake (Rapier `setWheelBrake` is a max impulse, N·s). The car is
@@ -47,13 +49,7 @@ function rampDown(value: number) {
  * Not `currentVehicleSpeed()`: in a headless test (Rapier 0.20) it stayed positive while the car drove backward.
  */
 function forwardSpeed(body: RAPIER.RigidBody) {
-  const q = body.rotation()
-  const v = body.linvel()
-  // Local −z rotated by q.
-  const fx = -2 * (q.x * q.z + q.w * q.y)
-  const fy = -2 * (q.y * q.z - q.w * q.x)
-  const fz = -(1 - 2 * (q.x * q.x + q.y * q.y))
-  return fx * v.x + fy * v.y + fz * v.z
+  return dot(chassisAxes(body.rotation()).forward, body.linvel())
 }
 
 /** Scales engine force down to 0 as speed in the push direction nears that direction's top speed. */

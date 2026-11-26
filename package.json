@@ -12,7 +12,8 @@
     "dev:shared": "npm --workspace=@game-loop/shared run dev",
     "dev:server": "npm --workspace=web-transport run dev",
     "dev:client": "npm --workspace=vue run dev -- --host 0.0.0.0",
-    "prod:server": "npm --workspace=web-transport run prod"
+    "prod:server": "npm --workspace=web-transport run prod",
+    "test": "npm run build --workspace=@game-loop/shared && node --test tests/*.test.ts"
   },
   "devDependencies": {
     "npm-run-all2": "^9.0.2"

@@ -11,7 +11,17 @@ export default function buildTerrainMeshes(scene: THREE.Scene, terrain: TerrainP
 
   for (const { piece, colliders } of terrain.pieces) {
     // Flat shading shows each grid cell, so uneven ground reads as uneven from a distance.
-    const material = new THREE.MeshStandardMaterial({ color: pieceColor(piece), roughness: 0.85, flatShading: true })
+    const material = new THREE.MeshStandardMaterial({
+      color: pieceColor(piece),
+      roughness: 0.85,
+      flatShading: true,
+      // A banked path's skirt and barrier are single sheets. Draw both faces, so you see them from either side.
+      side: piece.kind === "bankedPath" ? THREE.DoubleSide : THREE.FrontSide,
+      // Flat road sits 1 cm above the ground. Pull it forward in depth, so it does not flicker against the ground far away.
+      polygonOffset: true,
+      polygonOffsetFactor: -1,
+      polygonOffsetUnits: -1,
+    })
     for (const collider of colliders) {
       const geometry = geometryFromShape(collider.shape)
       if (!geometry) {
@@ -22,6 +32,8 @@ export default function buildTerrainMeshes(scene: THREE.Scene, terrain: TerrainP
       mesh.position.copy(collider.translation())
       mesh.quaternion.copy(collider.rotation())
       mesh.castShadow = piece.kind === "bump"
+      // Draw terrain before the ground under it: the GPU then skips the ground's hidden pixels (early depth test).
+      mesh.renderOrder = -1
       mesh.receiveShadow = true
       scene.add(mesh)
       meshes.push(mesh)
