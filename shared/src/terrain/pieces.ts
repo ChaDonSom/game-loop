@@ -1,7 +1,7 @@
 import RAPIER from "@dimforge/rapier3d-compat"
 import { seededRandom } from "./random.js"
 import { GROUND_CLEARANCE, bankedPathGeometry } from "./bankedPath.js"
-import type { BankedPathPiece, BumpPiece, RoughPatchPiece, TerrainPiece } from "./types.js"
+import type { BankedPathPiece, BumpPiece, RampPiece, RoughPatchPiece, TerrainPiece } from "./types.js"
 
 /**
  * Collider shapes for each piece, in the piece's own frame (origin on the ground, facing +Z).
@@ -14,6 +14,8 @@ export function pieceColliders(piece: TerrainPiece): RAPIER.ColliderDesc[] {
       return [bumpCollider(piece)]
     case "bankedPath":
       return [bankedPathCollider(piece)]
+    case "ramp":
+      return [rampCollider(piece)]
     case "roughPatch":
       return [roughPatchCollider(piece)]
   }
@@ -86,5 +88,31 @@ function roughPatchCollider(piece: RoughPatchPiece): RAPIER.ColliderDesc {
 
 function bankedPathCollider(piece: BankedPathPiece): RAPIER.ColliderDesc {
   const { vertices, indices } = bankedPathGeometry(piece)
+  return RAPIER.ColliderDesc.trimesh(vertices, indices)
+}
+
+/** Shape of a ramp: a closed wedge, low edge at z = 0 on the ground, high edge at z = length. */
+export function rampGeometry(piece: RampPiece) {
+  const w = piece.width / 2
+  const { length: l, height: h } = piece
+  // 0-1: low edge, 2-3: high edge top, 4-5: high edge bottom.
+  // prettier-ignore
+  const vertices = new Float32Array([
+    -w, GROUND_CLEARANCE, 0,  w, GROUND_CLEARANCE, 0,
+    -w, h, l,                 w, h, l,
+    -w, 0, l,                 w, 0, l,
+  ])
+  // Slope (normal up and back), back wall (normal +Z), two side triangles. Counter-clockwise seen from outside.
+  // prettier-ignore
+  const indices = new Uint32Array([
+    0, 2, 1,  1, 2, 3,
+    2, 4, 3,  3, 4, 5,
+    0, 4, 2,  1, 3, 5,
+  ])
+  return { vertices, indices }
+}
+
+function rampCollider(piece: RampPiece): RAPIER.ColliderDesc {
+  const { vertices, indices } = rampGeometry(piece)
   return RAPIER.ColliderDesc.trimesh(vertices, indices)
 }

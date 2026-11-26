@@ -1,5 +1,5 @@
 import { VEHICLE_DIMENSIONS } from "../vehicle/dimensions.js"
-import type { BankedPathPiece, BumpPiece, RoughPatchPiece, TerrainLayout } from "./types.js"
+import type { BankedPathPiece, BumpPiece, RampPiece, RoughPatchPiece, TerrainLayout } from "./types.js"
 
 /**
  * The terrain both sides build. Plain data only: no functions, no Math.random().
@@ -78,41 +78,68 @@ const bankedTurn: BankedPathPiece = {
 // ---------------------------------------------------------------------------
 // YOUR CHOICE: the oval. No-friction speed of a banked curve: v = √(g · r · tan θ) in m/s (× 2.237 for mph).
 // Pick the speed you want to hold, then the radius or the angle. Top speed is 94 mph (42 m/s).
-// Each straight must be longer than easeLength, so its middle is flat: that is where you drive on and off.
 const ovalRadius = 50 // to the centre line
 const ovalStraight = 100
 const ovalBankDegrees = 20
 const ovalRoadWidth = 10 * car.width
+// YOUR CHOICE: the straights' bank, and how slowly it changes. Asked for: half the turns' bank, with about a third
+// of each straight in transition. The ease is centred on each straight-to-arc boundary, so a third of the straight
+// (a sixth at each end) means an ease of straight / 3, counted half on the straight and half on the arc.
+const ovalStraightBankDegrees = ovalBankDegrees / 2
+const ovalEaseLength = ovalStraight / 3
+// YOUR CHOICE: the entry ramp, up to the outer edge of the straight that faces the spawn. Its top meets the edge
+// height (road width × tan(straight bank)). Longer = gentler.
+const ovalRampLength = 15
+const ovalRampWidth = 8
 
 // Placement (not a slot): behind the spawn ramp, centred on x = 0, z = -260. Region x -200…200, z -480…-40.
 // Turned 90°, so its straights run along X and the side facing the spawn is a flat straight: the way in shows.
 const ovalCenter = { x: 0, z: -260 }
 const ovalTurn = Math.PI / 2
-// In the oval's own frame the path starts at (-radius, -straight/2) from its centre, heading +Z, turning left.
-const ovalStart = { x: -ovalRadius, z: -ovalStraight / 2 }
+// In the oval's own frame the path starts at (-radius, -straight/2) from its centre, heading +Z, turning left, so
+// the first straight runs along local +Z at x = -radius, and its outer edge is at x = -radius - roadWidth / 2.
+/** A point in the oval's own frame (origin at its centre), turned by ovalTurn about +Y into the world. */
+function ovalToWorld(x: number, z: number) {
+  return {
+    x: ovalCenter.x + x * Math.cos(ovalTurn) + z * Math.sin(ovalTurn),
+    y: 0,
+    z: ovalCenter.z - x * Math.sin(ovalTurn) + z * Math.cos(ovalTurn),
+  }
+}
+const ovalStraightBank = ovalStraightBankDegrees * DEG
 const oval: BankedPathPiece = {
   kind: "bankedPath",
   id: "banked-oval",
   surface: "road",
-  // The same start point, turned by ovalTurn about +Y into the world.
-  position: {
-    x: ovalCenter.x + ovalStart.x * Math.cos(ovalTurn) + ovalStart.z * Math.sin(ovalTurn),
-    y: 0,
-    z: ovalCenter.z - ovalStart.x * Math.sin(ovalTurn) + ovalStart.z * Math.cos(ovalTurn),
-  },
+  position: ovalToWorld(-ovalRadius, -ovalStraight / 2),
   rotationY: ovalTurn,
   roadWidth: ovalRoadWidth,
   segments: [
-    { type: "straight", length: ovalStraight },
+    { type: "straight", length: ovalStraight, bank: ovalStraightBank },
     { type: "arc", turn: "left", radius: ovalRadius, angle: Math.PI },
-    { type: "straight", length: ovalStraight },
+    { type: "straight", length: ovalStraight, bank: ovalStraightBank },
     { type: "arc", turn: "left", radius: ovalRadius, angle: Math.PI },
   ],
   bankAngle: ovalBankDegrees * DEG,
-  easeLength,
+  easeLength: ovalEaseLength,
   barrierHeight,
+  // The ramp meets the outer (right-hand) edge at the middle of the first straight.
+  barrierGaps: [{ at: ovalStraight / 2, length: ovalRampWidth + 2, side: "right" }],
   closed: true,
   resolution: pathResolution,
+}
+
+/** Entry ramp: rises from outside the oval toward its centre, onto the outer edge of the first straight. */
+const ovalRamp: RampPiece = {
+  kind: "ramp",
+  id: "banked-oval-ramp",
+  surface: "road",
+  position: ovalToWorld(-ovalRadius - ovalRoadWidth / 2 - ovalRampLength, 0),
+  // Rises toward the oval's local +X (its inside), then turned with the oval.
+  rotationY: ovalTurn + Math.PI / 2,
+  length: ovalRampLength,
+  width: ovalRampWidth,
+  height: ovalRoadWidth * Math.tan(ovalStraightBank),
 }
 
 // ---------------------------------------------------------------------------
@@ -169,4 +196,4 @@ const roughPatch: RoughPatchPiece = {
   seed: 42,
 }
 
-export const DEFAULT_TERRAIN_LAYOUT: TerrainLayout = [...bumps, bankedTurn, roughPatch, oval, sCurve]
+export const DEFAULT_TERRAIN_LAYOUT: TerrainLayout = [...bumps, bankedTurn, roughPatch, oval, ovalRamp, sCurve]

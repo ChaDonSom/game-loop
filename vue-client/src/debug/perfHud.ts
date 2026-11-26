@@ -29,6 +29,12 @@ const loadedAt = typeof performance !== "undefined" ? performance.now() : 0
 const samples: Sample[] = []
 let panel: HTMLDivElement | null = null
 let lastReport = 0
+let extra: (() => string) | null = null
+
+/** One more line for the readout, read at each report. */
+export function setPerfExtra(line: () => string) {
+  extra = line
+}
 
 function ensurePanel() {
   if (panel) return panel
@@ -60,6 +66,7 @@ export function recordFrame(sample: Sample) {
     ` render  ${fmt(samples.map((s) => s.render))}\n` +
     `draws    ${samples[samples.length - 1]!.calls}  tris ${samples[samples.length - 1]!.triangles}\n` +
     `t        ${((now - loadedAt) / 1000).toFixed(0)} s` +
+    (extra ? `\n${extra()}` : "") +
     (perfOptions.noArc || perfOptions.noShadow || perfOptions.pixelRatio
       ? `\nab       ${[perfOptions.noArc && "noarc", perfOptions.noShadow && "noshadow", perfOptions.pixelRatio && `dpr=${perfOptions.pixelRatio}`].filter(Boolean).join(" ")}`
       : "")

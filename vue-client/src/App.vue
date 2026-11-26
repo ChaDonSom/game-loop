@@ -2,7 +2,16 @@
 import Datagrams from "@/components/Datagrams.vue"
 import TouchControls from "@/components/TouchControls.vue"
 import { worldMismatch } from "@/store/network"
-import { touchVisible, wheelDragSetting, wheelTangentReach, wheelTargetMark, wheelTrackCue } from "@/input/touch"
+import { cycleQuality, qualityLevel, qualityOverridden, qualitySetting } from "@/three/quality"
+import {
+  touchVisible,
+  wheelDragSetting,
+  wheelFlick,
+  wheelLockSetting,
+  wheelTangentReach,
+  wheelTargetMark,
+  wheelTrackCue,
+} from "@/input/touch"
 import { onBeforeUnmount, onMounted, ref } from "vue"
 
 /** Fullscreen on a phone hides the browser's reload button. */
@@ -42,13 +51,24 @@ async function toggleFullscreen() {
   }
 }
 
+const quality = qualitySetting.value
+
 // Touch wheel settings. Shown only while the touch controls are.
 const dragMode = wheelDragSetting.value
 const reach = wheelTangentReach.value
 const trackCue = wheelTrackCue.value
 const targetMark = wheelTargetMark.value
+const flick = wheelFlick.value
+const lockDeg = wheelLockSetting.value
+/** angular → tangent → circles → angular */
 function toggleDragMode() {
-  wheelDragSetting.set(dragMode.value === "angular" ? "tangent" : "angular")
+  wheelDragSetting.set(dragMode.value === "angular" ? "tangent" : dragMode.value === "tangent" ? "circles" : "angular")
+}
+function toggleFlick() {
+  wheelFlick.set(flick.value === "on" ? "off" : "on")
+}
+function onLockInput(e: Event) {
+  wheelLockSetting.set(Number((e.target as HTMLInputElement).value))
 }
 function toggleReach() {
   wheelTangentReach.set(reach.value === "edge" ? "fixed" : "edge")
@@ -84,6 +104,16 @@ onBeforeUnmount(() => {
     >
       {{ isFullscreen ? "⤡" : "⛶" }}
     </button>
+    <button
+      v-if="!qualityOverridden"
+      type="button"
+      class="pill"
+      :title="`Render quality: ${quality}${quality === 'auto' ? ` (step ${qualityLevel})` : ''}. Tap to change.`"
+      :aria-label="`Render quality: ${quality}`"
+      @click="cycleQuality"
+    >
+      Q {{ quality }}{{ quality === "auto" && qualityLevel > 0 ? ` −${qualityLevel}` : "" }}
+    </button>
     <template v-if="touchVisible">
       <button
         type="button"
@@ -98,9 +128,32 @@ onBeforeUnmount(() => {
             <circle cx="0" cy="-5" r="1.6" class="fill" />
             <path d="M 3.2 -6.6 A 7.3 7.3 0 0 1 6.8 -2.6" class="stroke" />
           </template>
-          <line v-else x1="-6" y1="-5" x2="6" y2="-5" class="stroke" />
+          <line v-else-if="dragMode === 'tangent'" x1="-6" y1="-5" x2="6" y2="-5" class="stroke" />
+          <path v-else d="M 1 -1.5 A 2 2 0 1 1 -1.6 1.2 A 3.4 3.4 0 1 1 3.6 -2.2" class="stroke" />
         </svg>
       </button>
+      <button
+        type="button"
+        class="pill"
+        :class="{ off: flick !== 'on' }"
+        :title="`Flick with momentum: ${flick}`"
+        :aria-label="`Flick with momentum: ${flick}`"
+        @click="toggleFlick"
+      >
+        flick
+      </button>
+      <label class="pill lock" title="Wheel turn, lock to lock">
+        lock {{ lockDeg }}°
+        <input
+          type="range"
+          :min="wheelLockSetting.min"
+          :max="wheelLockSetting.max"
+          step="30"
+          :value="lockDeg"
+          aria-label="Wheel turn, lock to lock, degrees"
+          @input="onLockInput"
+        />
+      </label>
       <template v-if="dragMode === 'tangent'">
         <button
           type="button"
@@ -158,6 +211,7 @@ onBeforeUnmount(() => {
   z-index: 11;
 }
 .pill {
+  white-space: nowrap;
   padding: 2px 8px;
   border: 0;
   border-radius: 999px;
@@ -166,6 +220,16 @@ onBeforeUnmount(() => {
   font: 600 12px/1.4 system-ui, sans-serif;
   cursor: pointer;
   touch-action: manipulation;
+}
+.pill.lock {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  cursor: default;
+}
+.pill.lock input {
+  width: 90px;
+  accent-color: #ffd166;
 }
 .pill.off {
   opacity: 0.5;

@@ -18,9 +18,11 @@ import {
   getTangentGrab,
   getWheelAngle,
   getWheelTarget,
+  grabCircle,
   grabTangent,
   grabWheel,
   isWheelHeld,
+  moveCircle,
   moveTangent,
   syncWheelDragMode,
   tangentDirection,
@@ -31,6 +33,7 @@ import {
   wheelTargetMark,
   wheelTangentReach,
   wheelTrackCue,
+  type WheelDragMode,
   longPressGear,
   moveWheel,
   pedalValue,
@@ -119,7 +122,7 @@ const safeRectEl = ref<HTMLElement | null>(null)
 let wheelPointer: number | null = null
 let wheelCenter = { x: 0, y: 0, radius: 1 }
 /** Which drag the current grab uses. Set at touch-down, so a mode change cannot split a drag. */
-let activeDrag: "angular" | "tangent" = "angular"
+let activeDrag: WheelDragMode = "angular"
 
 /** Element that holds the wheel pointer's capture: the wheel itself, or the bottom-half steer zone. */
 let wheelCaptureEl: HTMLElement | null = null
@@ -147,6 +150,8 @@ function onWheelDown(e: PointerEvent) {
     const rect = safeRectEl.value?.getBoundingClientRect() ?? { left: 0, top: 0, right: innerWidth, bottom: innerHeight }
     const mode = wheelTangentReach.value.value
     grabTangent(dx, dy, center.radius, tangentReach(mode, { x: e.clientX, y: e.clientY }, t, rect), mode)
+  } else if (activeDrag === "circles") {
+    grabCircle(e.clientX, e.clientY)
   } else {
     grabWheel(dx, dy, center.radius)
   }
@@ -157,6 +162,7 @@ function onWheelMove(e: PointerEvent) {
   const dx = e.clientX - wheelCenter.x
   const dy = e.clientY - wheelCenter.y
   if (activeDrag === "tangent") moveTangent(dx, dy)
+  else if (activeDrag === "circles") moveCircle(e.clientX, e.clientY)
   else moveWheel(dx, dy, wheelCenter.radius)
 }
 

@@ -41,14 +41,41 @@ test("oval closes with no gap at the seam", () => {
   assert.ok(Math.abs(last.heading - 2 * Math.PI) < 0.1)
 })
 
-test("oval straights are flat in the middle (the way onto the infield)", () => {
+test("oval straights reach their own bank in the middle, and ease over a third of their length", () => {
   const oval = byId("banked-oval")
   const samples = bankedPathSamples(oval)
   for (const segment of [0, 2]) {
+    const straight = oval.segments[segment]!
+    assert.ok(straight.type === "straight" && straight.bank !== undefined)
     const on = samples.filter((s) => s.segment === segment)
     const mid = on[Math.floor(on.length / 2)]!
-    assert.equal(mid.bank, 0, `straight ${segment} middle bank ${mid.bank * DEG}°`)
+    assert.ok(Math.abs(mid.bank - straight.bank) < 1e-9, `straight ${segment} middle bank ${mid.bank * DEG}°`)
+    const easing = on.filter((s) => Math.abs(s.bank - straight.bank) > 1e-6).length / on.length
+    assert.ok(Math.abs(easing - 1 / 3) < 0.05, `straight ${segment}: ${(easing * 100).toFixed(0)}% easing`)
   }
+})
+
+test("oval ramp top meets the outer edge height, and the barrier has a gap there", () => {
+  const oval = byId("banked-oval")
+  const ramp = DEFAULT_TERRAIN_LAYOUT.find((p) => p.id === "banked-oval-ramp")
+  assert.ok(ramp && ramp.kind === "ramp")
+  const straight = oval.segments[0]!
+  assert.ok(straight.type === "straight")
+  const edge = oval.roadWidth * Math.tan(straight.bank ?? 0)
+  assert.ok(Math.abs(ramp.height - edge) < 0.02, `ramp ${ramp.height} vs edge ${edge}`)
+  // Highest wall vertex near the ramp, on the outer side, must be no higher than the road edge (no barrier).
+  const { vertices } = bankedPathGeometry(oval)
+  const c = Math.cos(oval.rotationY)
+  const sn = Math.sin(oval.rotationY)
+  const top = (ramp.position.x + Math.sin(ramp.rotationY) * ramp.length)
+  const topZ = ramp.position.z + Math.cos(ramp.rotationY) * ramp.length
+  let highest = 0
+  for (let i = 0; i < vertices.length; i += 3) {
+    const wx = oval.position.x + vertices[i]! * c + vertices[i + 2]! * sn
+    const wz = oval.position.z - vertices[i]! * sn + vertices[i + 2]! * c
+    if (Math.hypot(wx - top, wz - topZ) < ramp.width / 2 - 0.5) highest = Math.max(highest, vertices[i + 1]!)
+  }
+  assert.ok(highest <= edge + 0.05, `wall at the ramp: ${highest.toFixed(2)} m, edge ${edge.toFixed(2)} m`)
 })
 
 test("S curve bank flips sides and is flat at the crossover", () => {
@@ -75,6 +102,8 @@ function bounds(piece: (typeof DEFAULT_TERRAIN_LAYOUT)[number]) {
   if (piece.kind === "bankedPath") {
     const v = bankedPathGeometry(piece).vertices
     for (let i = 0; i < v.length; i += 3) pts.push([v[i]!, v[i + 2]!])
+  } else if (piece.kind === "ramp") {
+    pts.push([-piece.width / 2, 0], [piece.width / 2, 0], [-piece.width / 2, piece.length], [piece.width / 2, piece.length])
   } else {
     const hx = piece.kind === "bump" ? piece.width / 2 : piece.sizeX / 2
     const hz = piece.kind === "bump" ? piece.length / 2 : piece.sizeZ / 2
@@ -96,6 +125,8 @@ test("no two pieces overlap, none touches the spawn ramp, all inside the walls",
     for (let j = i + 1; j < boxes.length; j++) {
       const a = boxes[i]!
       const b = boxes[j]!
+      // A piece named after another (the oval's ramp) is attached to it on purpose.
+      if (a.id.startsWith(b.id) || b.id.startsWith(a.id)) continue
       const overlap = a.minX < b.maxX && b.minX < a.maxX && a.minZ < b.maxZ && b.minZ < a.maxZ
       assert.ok(!overlap, `${a.id} overlaps ${b.id}`)
     }

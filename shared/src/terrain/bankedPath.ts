@@ -31,7 +31,7 @@ function segmentLength(segment: PathSegment) {
 }
 
 function targetBank(segment: PathSegment, bankAngle: number) {
-  if (segment.type === "straight") return 0
+  if (segment.type === "straight") return segment.bank ?? 0
   return segment.turn === "left" ? bankAngle : -bankAngle
 }
 
@@ -165,16 +165,20 @@ export function bankedPathGeometry(piece: BankedPathPiece) {
 
   // Walls: per sample and side, a bottom vertex on the ground and a top vertex. Only the raised side has height.
   const wallBase = vertices.length / 3
+  // Gap positions are measured from the first real segment: an open path starts with a flat lead-in.
+  const gapOffset = piece.closed ? 0 : piece.easeLength / 2
+  const inGap = (s: number, side: "left" | "right") =>
+    (piece.barrierGaps ?? []).some((g) => g.side === side && Math.abs(s - gapOffset - g.at) <= g.length / 2)
   const tops: number[][] = [[], []] // [left, right] wall top height above the ground, per sample
   for (const sample of samples) {
     const l = leftOf(sample.heading)
     const raised = piece.roadWidth * Math.tan(Math.abs(sample.bank))
     const barrier = piece.bankAngle > 0 ? piece.barrierHeight * Math.min(1, Math.abs(sample.bank) / piece.bankAngle) : 0
-    const high = GROUND_CLEARANCE + raised + barrier
     const leftHigh = sample.bank < 0
     for (const [side, sign] of [[0, 1], [1, -1]] as const) {
       const isHigh = side === 0 ? leftHigh : !leftHigh && sample.bank !== 0
-      const top = isHigh ? high : GROUND_CLEARANCE
+      const gap = inGap(sample.s, side === 0 ? "left" : "right")
+      const top = isHigh ? GROUND_CLEARANCE + raised + (gap ? 0 : barrier) : GROUND_CLEARANCE
       tops[side]!.push(top)
       const ex = sample.x + l.x * half * sign
       const ez = sample.z + l.z * half * sign

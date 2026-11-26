@@ -27,7 +27,8 @@ export type BumpPiece = PieceBase & {
 
 /** One piece of a banked path's centre line. */
 export type PathSegment =
-  | { type: "straight"; length: number }
+  /** `bank`: signed bank on this straight, radians. Positive = left edge low, as on a left arc. Default 0 (flat). */
+  | { type: "straight"; length: number; bank?: number }
   /** `radius` is to the centre line. `angle` is how far it turns, radians (Math.PI = 180°). */
   | { type: "arc"; turn: "left" | "right"; radius: number; angle: number }
 
@@ -46,10 +47,26 @@ export type BankedPathPiece = PieceBase & {
   easeLength: number
   /** Height (m) of a wall on the raised edge. Scales with the bank, so it is 0 where the road is flat. 0 = none. */
   barrierHeight: number
+  /**
+   * Openings in the barrier, so a ramp can meet the raised edge. `at` is the gap's centre, in metres along the centre
+   * line from the start of the first segment. `side` is which edge.
+   */
+  barrierGaps?: Array<{ at: number; length: number; side: "left" | "right" }>
   /** The end joins the start. For an oval: the segments must bring the centre line back to the origin. */
   closed: boolean
   /** Centre-line samples per metre. More = smoother. */
   resolution: number
+}
+
+/** A straight wedge to drive up. Origin: centre of its low edge, on the ground. It rises toward +Z. */
+export type RampPiece = PieceBase & {
+  kind: "ramp"
+  /** Along the rise (Z). */
+  length: number
+  /** Across (X). */
+  width: number
+  /** Height of the high edge. */
+  height: number
 }
 
 /** Uneven off-road ground. Origin: centre of the patch, on the ground. */
@@ -65,5 +82,5 @@ export type RoughPatchPiece = PieceBase & {
   seed: number
 }
 
-export type TerrainPiece = BumpPiece | BankedPathPiece | RoughPatchPiece
+export type TerrainPiece = BumpPiece | BankedPathPiece | RampPiece | RoughPatchPiece
 export type TerrainLayout = TerrainPiece[]

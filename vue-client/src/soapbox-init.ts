@@ -37,7 +37,9 @@ import { queueControls, stateLagSeconds } from "@/network"
 import { authoritativePlayers, myId, mySpawnIndex, worldMismatch } from "@/store/network"
 import reconcile from "@/physics/reconcile"
 import RenderSmoothing from "@/physics/renderSmoothing"
-import { recordFrame } from "@/debug/perfHud"
+import { recordFrame, setPerfExtra } from "@/debug/perfHud"
+import { initQuality, qualitySetting } from "@/three/quality"
+import { watch } from "vue"
 
 async function init() {
   const { world } = await initRapier()
@@ -52,6 +54,9 @@ async function init() {
   const renderer = initRenderer(container)
 
   const sun = initLights(scene)
+  const quality = initQuality(renderer, scene, sun)
+  watch(qualitySetting.value, () => quality.sync())
+  setPerfExtra(() => `quality  ${quality.describe()}`)
 
   const ramp = createRamp(world)
   initRampMesh(scene, ramp)
@@ -207,6 +212,7 @@ async function init() {
       calls: renderer.info.render.calls,
       triangles: renderer.info.render.triangles,
     })
+    quality.frame(interval)
   }
 
   animate(performance.now())

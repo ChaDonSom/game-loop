@@ -7,7 +7,7 @@
 import { ref, watch } from "vue"
 import type RAPIER from "@dimforge/rapier3d-compat"
 import { MAX_STEERING, type FrontAxleSlip, type Pad } from "@game-loop/shared"
-import { storedChoice } from "./storedChoice.ts"
+import { storedChoice, storedNumber } from "./storedChoice.ts"
 
 const DEG = Math.PI / 180
 
@@ -17,7 +17,7 @@ const DEG = Math.PI / 180
 
 /** Wheel degrees per finger degree. At 1 (1:1), the wheel follows the finger; lock needs a 450° finger arc (1.25 turns). */
 export const WHEEL_GAIN = 1
-/** Total wheel turn, lock to lock. */
+/** Default total wheel turn, lock to lock. The "lock" input in the status bar changes it at runtime. */
 export const VISUAL_LOCK = 900 * DEG
 /** Self-centering, in wheel degrees per metre the front wheels roll. Holds at low speed; see `CENTER_SAT_SPEED`. */
 export const CENTER_RATE = 120 * DEG
@@ -67,6 +67,32 @@ export const TAP_MS = 15
 export const SLIDE_REAR_SLIP = 0.15
 /** After a tap, the gap must grow past this (wheel radians) before the next tap. 30° of wheel. */
 export const TAP_REARM_GAP = 30 * DEG
+
+// Flick with momentum (`notes/research/fast-wheel-input.md`, option 1).
+
+/**
+ * YOUR CHOICE: how fast a flicked wheel slows down, per second (exponential). 3 = it loses 95% of its spin in 1 s.
+ * Lower = it coasts further. Flick toward lock and let go: does it stop where you expect?
+ */
+export const FLICK_FRICTION = 3
+/** YOUR CHOICE: release spin (wheel rad/s) below which there is no flick. 2 rad/s ≈ 115°/s. Slow releases stay put. */
+export const FLICK_MIN_SPIN = 2
+/** Spin below this (rad/s) stops. */
+const FLICK_STOP_SPIN = 0.2
+/** Time constant (s) of the held wheel's spin estimate. Short = follows the last instant of the drag. */
+const SPIN_SMOOTHING_S = 0.05
+
+// Local circles (`notes/research/fast-wheel-input.md`, option 4).
+
+/**
+ * YOUR CHOICE: wheel turn per turn of the thumb's direction of motion. 1 = one small loop of the thumb, anywhere,
+ * turns the wheel 360°. Try small fast circles, then a slow wide arc: which gain feels right?
+ */
+export const CIRCLE_GAIN = 1
+/** YOUR CHOICE: px of thumb travel before a new direction is read. Small = responsive but jittery. */
+export const CIRCLE_MIN_STEP_PX = 4
+/** A turn of direction larger than this in one step is a reversal or a jump, not a circle: ignored. 100°. */
+const CIRCLE_MAX_TURN = 100 * DEG
 
 // Tangent drag (plan W, `notes/plans/tangent-wheel-drag.md`).
 
@@ -135,7 +161,9 @@ export function pedalValue(y: number, bottom: number, height: number) {
 // #region MARK: Wheel
 // ----------------------------------------------------
 
-const halfLock = VISUAL_LOCK / 2
+/** Lock to lock, in wheel degrees. Saved; changed from the status bar. */
+export const wheelLockSetting = storedNumber("touchWheelLockDeg", VISUAL_LOCK / DEG, 90, 1440)
+let halfLock = (wheelLockSetting.value.value * DEG) / 2
 let wheelAngle = 0
 let held = false
 let lastFingerAngle: number | null = null
@@ -165,6 +193,22 @@ export function releaseWheel() {
   lastFingerAngle = null
 }
 
+/** Half the lock-to-lock turn, wheel radians. */
+export function getHalfLock() {
+  return halfLock
+}
+
+// A new lock keeps the steer fraction: the car's steering does not jump, only how far the wheel turns for it.
+watch(wheelLockSetting.value, (deg) => {
+  const next = (deg * DEG) / 2
+  const scale = next / halfLock
+  halfLock = next
+  wheelAngle *= scale
+  wheelTarget *= scale
+  spin *= scale
+  if (tangent) tangent.angle0 *= scale
+})
+
 /** Visual angle (rad) for the SVG. Not curved: the picture shows the wheel, not the curve. */
 export function getWheelAngle() {
   return wheelAngle
@@ -175,10 +219,10 @@ export function getWheelAngle() {
 // ----------------------------------------------------
 
 type Vec2 = { x: number; y: number }
-export type WheelDragMode = "angular" | "tangent"
+export type WheelDragMode = "angular" | "tangent" | "circles"
 
 /** The setting, as the pill shows and saves it. */
-export const wheelDragSetting = storedChoice<WheelDragMode>("touchWheelDrag", ["angular", "tangent"], "angular")
+export const wheelDragSetting = storedChoice<WheelDragMode>("touchWheelDrag", ["angular", "tangent", "circles"], "angular")
 /** The mode in use. Follows the setting, but not while the wheel is held, so a change cannot split a drag. */
 export const wheelDragMode = ref<WheelDragMode>(wheelDragSetting.value.value)
 watch(wheelDragSetting.value, (next) => {
@@ -193,6 +237,8 @@ export function syncWheelDragMode() {
 
 /** Reach mode toggle (tangent mode only). Read at each grab. */
 export const wheelTangentReach = storedChoice<TangentReachMode>("touchWheelReach", ["fixed", "edge"], TANGENT_REACH_DEFAULT)
+/** Flick with momentum toggle (any drag mode). */
+export const wheelFlick = storedChoice("touchWheelFlick", ["off", "on"] as const, "off")
 /** Track cue toggle (tangent mode only). */
 export const wheelTrackCue = storedChoice("touchWheelCue", ["off", "on"] as const, "off")
 /** Target mark on the track toggle (tangent mode only, needs the track cue). */
@@ -289,8 +335,43 @@ export function getTangentGrab(): Readonly<TangentGrab> | null {
  */
 export function wheelCenterInset(mode: WheelDragMode, radius: number, hitRadius: number) {
   const base = EDGE_MARGIN + radius
-  if (mode === "angular") return base
+  if (mode !== "tangent") return base
   return Math.max(base, Math.hypot(hitRadius, TANGENT_REACH_PX))
+}
+
+// ----------------------------------------------------
+// #region MARK: Local circles
+// ----------------------------------------------------
+
+let circleLast: Vec2 | null = null
+let circleHeading: number | null = null
+
+/** Start a local-circles drag. The point can be anywhere: only the thumb's direction of motion counts. */
+export function grabCircle(x: number, y: number) {
+  held = true
+  lastFingerAngle = null
+  circleLast = { x, y }
+  circleHeading = null
+}
+
+/**
+ * Steer by how much the thumb's direction of motion turns. A clockwise loop on screen turns the wheel clockwise
+ * (right) by CIRCLE_GAIN × 360°. A straight drag does not steer.
+ */
+export function moveCircle(x: number, y: number) {
+  if (!held || !circleLast) return
+  const vx = x - circleLast.x
+  const vy = y - circleLast.y
+  if (Math.hypot(vx, vy) < CIRCLE_MIN_STEP_PX) return
+  const heading = Math.atan2(vy, vx)
+  if (circleHeading !== null) {
+    const turn = wrapToPi(heading - circleHeading)
+    if (Math.abs(turn) <= CIRCLE_MAX_TURN) {
+      wheelAngle = Math.max(-halfLock, Math.min(halfLock, wheelAngle + turn * CIRCLE_GAIN))
+    }
+  }
+  circleHeading = heading
+  circleLast = { x, y }
 }
 
 // ----------------------------------------------------
@@ -347,12 +428,41 @@ function updateTap() {
   lastGap = gap
 }
 
+/** Wheel spin (rad/s): measured while held, coasting after a flick. */
+let spin = 0
+let spinAngle = 0
+let spinWasHeld = false
+
+/** Track the held wheel's spin; on release with the flick toggle on, keep it, then let friction slow it. */
+function updateSpin(dt: number) {
+  if (held) {
+    const measured = (wheelAngle - spinAngle) / dt
+    spin += (measured - spin) * (1 - Math.exp(-dt / SPIN_SMOOTHING_S))
+  } else if (spinWasHeld) {
+    // Just released.
+    if (wheelFlick.value.value !== "on" || Math.abs(spin) < FLICK_MIN_SPIN) spin = 0
+  }
+  if (!held && spin !== 0) {
+    wheelAngle += spin * dt
+    spin *= Math.exp(-FLICK_FRICTION * dt)
+    if (Math.abs(wheelAngle) >= halfLock) {
+      wheelAngle = Math.sign(wheelAngle) * halfLock
+      spin = 0
+    }
+    if (Math.abs(spin) < FLICK_STOP_SPIN) spin = 0
+  }
+  spinWasHeld = held
+  spinAngle = wheelAngle
+}
+
 /** Run each fixed step. Centers only while released. */
 export function updateWheel(dt: number, rolling: number, slip: FrontAxleSlip) {
   wheelTarget = centerTarget(slip)
   sliding = Math.abs(slip.rearAngle) > SLIDE_REAR_SLIP
+  updateSpin(dt)
   if (!held) wheelAngle = centerStep(wheelAngle, wheelTarget, rolling, dt)
   updateTap()
+  spinAngle = wheelAngle
 }
 
 export function isWheelHeld() {
@@ -388,6 +498,8 @@ export function frontRolling(vehicle: RAPIER.DynamicRayCastVehicleController, dt
 export function resetWheel() {
   wheelAngle = 0
   wheelTarget = 0
+  spin = 0
+  spinAngle = 0
   tangent = null
   prevRotations.fill(null)
 }

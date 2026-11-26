@@ -32,6 +32,8 @@ export default function buildTerrainMeshes(scene: THREE.Scene, terrain: TerrainP
       mesh.position.copy(collider.translation())
       mesh.quaternion.copy(collider.rotation())
       mesh.castShadow = piece.kind === "bump"
+      // Draw terrain before the ground under it: the GPU then skips the ground's hidden pixels (early depth test).
+      mesh.renderOrder = -1
       mesh.receiveShadow = true
       scene.add(mesh)
       meshes.push(mesh)

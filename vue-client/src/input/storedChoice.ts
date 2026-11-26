@@ -28,3 +28,30 @@ export function storedChoice<T extends string>(key: string, choices: readonly T[
 
   return { value, set }
 }
+
+/** A number setting saved in `localStorage`, clamped to [min, max]. Same storage rules as `storedChoice`. */
+export function storedNumber(key: string, fallback: number, min: number, max: number) {
+  const clampValue = (n: number) => Math.min(max, Math.max(min, n))
+  const value = ref(load())
+
+  function load(): number {
+    try {
+      const saved = Number(localStorage.getItem(key))
+      if (localStorage.getItem(key) !== null && Number.isFinite(saved)) return clampValue(saved)
+    } catch {
+      // Storage blocked: use the default.
+    }
+    return fallback
+  }
+
+  function set(next: number) {
+    value.value = clampValue(next)
+    try {
+      localStorage.setItem(key, String(value.value))
+    } catch {
+      // Storage blocked: keep the value for this page only.
+    }
+  }
+
+  return { value, set, min, max }
+}
