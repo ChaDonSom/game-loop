@@ -158,6 +158,9 @@ onBeforeUnmount(() => {
   left: calc(env(safe-area-inset-left) + 8px);
   right: calc(env(safe-area-inset-right) + 8px);
   display: flex;
+  /* Pills wrap to a second row before the bar gets wider than the screen. A wider bar makes a phone browser widen
+     its layout viewport and draw the whole page smaller (portrait: 412 px laid out at 506 px). */
+  flex-wrap: wrap;
   align-items: flex-start;
   gap: 6px;
   z-index: 11;
