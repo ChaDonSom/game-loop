@@ -121,15 +121,24 @@ let wheelCenter = { x: 0, y: 0, radius: 1 }
 /** Which drag the current grab uses. Set at touch-down, so a mode change cannot split a drag. */
 let activeDrag: "angular" | "tangent" = "angular"
 
+/** Element that holds the wheel pointer's capture: the wheel itself, or the bottom-half steer zone. */
+let wheelCaptureEl: HTMLElement | null = null
+
+/**
+ * Any pointer-down on the wheel, or in the bottom half of the screen outside the other controls (the steer zone),
+ * grabs the wheel, measured from the wheel center. A new touch takes over from the current one, so a fast second
+ * grab is never dropped (the old touch may not have sent its pointerup yet).
+ */
 function onWheelDown(e: PointerEvent) {
-  if (wheelPointer !== null || !wheelEl.value) return
+  if (!wheelEl.value) return
+  if (wheelPointer !== null) endWheelPointer()
   const rect = wheelEl.value.getBoundingClientRect()
   const hitR = rect.width / 2
   const center = { x: rect.left + hitR, y: rect.top + hitR, radius: hitR / HIT_FRAC }
   const dx = e.clientX - center.x
   const dy = e.clientY - center.y
-  if (Math.hypot(dx, dy) > hitR) return
-  wheelEl.value.setPointerCapture(e.pointerId)
+  wheelCaptureEl = e.currentTarget as HTMLElement
+  wheelCaptureEl.setPointerCapture(e.pointerId)
   wheelPointer = e.pointerId
   wheelCenter = center
   activeDrag = syncWheelDragMode()
@@ -151,10 +160,17 @@ function onWheelMove(e: PointerEvent) {
   else moveWheel(dx, dy, wheelCenter.radius)
 }
 
+/** Pointer up, cancel, or a lost capture: all end the drag. */
 function onWheelUp(e: PointerEvent) {
-  if (e.pointerId !== wheelPointer) return
-  wheelEl.value?.releasePointerCapture(e.pointerId)
+  if (e.pointerId === wheelPointer) endWheelPointer()
+}
+
+function endWheelPointer() {
+  if (wheelPointer !== null && wheelCaptureEl?.hasPointerCapture(wheelPointer)) {
+    wheelCaptureEl.releasePointerCapture(wheelPointer)
+  }
   wheelPointer = null
+  wheelCaptureEl = null
   releaseWheel()
   releasedAt = performance.now()
   syncWheelDragMode()
@@ -225,9 +241,7 @@ function endGear(tap: boolean) {
 const drivingKeys = new Set(Object.keys(keys))
 
 function releaseAll() {
-  wheelPointer = null
-  releaseWheel()
-  syncWheelDragMode()
+  endWheelPointer()
   for (const name of ["throttle", "brake"] as const) {
     pedalPointers[name] = null
     setPedal(name, 0)
@@ -381,6 +395,15 @@ const brakeFill = pedalFills.brake
     <!-- Screen minus the safe area and the edge margin. Edge-reach tangent drag measures to it. -->
     <div ref="safeRectEl" class="safe-rect" :style="safeRectStyle" aria-hidden="true" />
     <WheelCue v-if="cue" :cue="cue" />
+    <!-- Bottom half: a missed grab still grabs the wheel. Under the other controls, so they keep their own touches. -->
+    <div
+      class="steer-zone"
+      @pointerdown="onWheelDown"
+      @pointermove="onWheelMove"
+      @pointerup="onWheelUp"
+      @pointercancel="onWheelUp"
+      @lostpointercapture="onWheelUp"
+    />
     <div
       ref="wheelEl"
       class="control wheel"
@@ -389,6 +412,7 @@ const brakeFill = pedalFills.brake
       @pointermove="onWheelMove"
       @pointerup="onWheelUp"
       @pointercancel="onWheelUp"
+      @lostpointercapture="onWheelUp"
     >
       <svg ref="wheelSvg" class="wheel-face" viewBox="-1 -1 2 2" :style="layout.wheelSvg" aria-hidden="true">
         <g>
@@ -482,6 +506,16 @@ const brakeFill = pedalFills.brake
 .wheel svg {
   display: block;
   overflow: visible;
+}
+.steer-zone {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 50%;
+  pointer-events: auto;
+  touch-action: none;
+  -webkit-tap-highlight-color: transparent;
 }
 .safe-rect {
   position: absolute;
