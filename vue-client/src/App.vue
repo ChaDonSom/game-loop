@@ -5,6 +5,7 @@ import { worldMismatch } from "@/store/network"
 import { cycleQuality, qualityLevel, qualityOverridden, qualitySetting } from "@/three/quality"
 import { touchVisible, wheelFlick, wheelLockSetting } from "@/input/touch"
 import { canFlip, requestFlip } from "@/input/flip"
+import { applyOrientation, canLockOrientation, isInstalledApp, orientationChoice, toggleOrientation } from "@/orientation"
 import { onBeforeUnmount, onMounted, ref } from "vue"
 
 /** Fullscreen on a phone hides the browser's reload button. */
@@ -36,15 +37,15 @@ async function toggleFullscreen() {
     }
     const root = document.documentElement as WebkitElement
     await (root.requestFullscreen ? root.requestFullscreen({ navigationUI: "hide" }) : root.webkitRequestFullscreen?.())
-    // Android allows an orientation lock only in fullscreen. Other browsers reject it: keep the current orientation.
-    const orientation = screen.orientation as ScreenOrientation & { lock?: (o: string) => Promise<void> }
-    await orientation.lock?.("landscape").catch(() => {})
+    // Android allows an orientation lock only in fullscreen or an installed app. Other browsers reject it.
+    await applyOrientation()
   } catch {
     // Refused (no user gesture, or blocked): stay as is.
   }
 }
 
 const quality = qualitySetting.value
+const orientation = orientationChoice.value
 
 // Touch wheel settings. Shown only while the touch controls are.
 const flick = wheelFlick.value
@@ -79,6 +80,21 @@ onBeforeUnmount(() => {
       @click="toggleFullscreen"
     >
       {{ isFullscreen ? "⤡" : "⛶" }}
+    </button>
+    <button
+      v-if="canLockOrientation && (isInstalledApp || isFullscreen)"
+      type="button"
+      class="pill icon"
+      :title="`Screen: ${orientation}. Tap to turn.`"
+      :aria-label="`Screen: ${orientation}. Tap to turn.`"
+      @click="toggleOrientation"
+    >
+      <!-- Material Symbols "screen_rotation" (outlined, weight 400). Apache License 2.0, Google. -->
+      <svg viewBox="0 -960 960 960" aria-hidden="true">
+        <path
+          d="M516-191 191-516q-18-20-18-46t18-46l166-165q18-20 44.99-20 26.99 0 47.01 20l325 325q19 19 19 46t-19 46L608-191q-18 20-44.99 20-26.99 0-47.01-20Zm46-39 172-172-331-332-172 172 331 332ZM478 1q-98.51 0-185.58-37.5-87.07-37.5-152.24-103Q75-205 37.5-292.18T0-478h60q0 80 28.5 151.5t78.5 127Q217-144 285.5-109T433-66L303-196l43-43L574-11q-23 7-47.48 9.5Q502.04 1 478 1Zm422-479q0-80-28-151.5T794.5-757Q745-813 677-848.5T530-892l128 128-43 43-228-228q23-6 45.5-8.5T478-960q100 0 187.5 38t153 103.5Q884-753 922-665.5T960-478h-60Zm-417-4Z"
+        />
+      </svg>
     </button>
     <button
       v-if="!qualityOverridden"
@@ -170,6 +186,16 @@ onBeforeUnmount(() => {
 }
 .pill.off {
   opacity: 0.5;
+}
+.pill.icon {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 6px;
+}
+.pill.icon svg {
+  width: 17px;
+  height: 17px;
+  fill: currentColor;
 }
 /* Big thumb target, at the far right. */
 .pill.flip {
