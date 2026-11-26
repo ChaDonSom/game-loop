@@ -172,6 +172,8 @@ watch(wheelLockSetting.value, (deg) => {
   wheelAngle *= scale
   wheelTarget *= scale
   spin *= scale
+  // The spin estimate compares against the last angle: scale it too, or the rescale reads as a fast spin.
+  spinAngle *= scale
 })
 
 /** Visual angle (rad) for the SVG. Not curved: the picture shows the wheel, not the curve. */

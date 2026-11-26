@@ -91,10 +91,14 @@ function bankedPathCollider(piece: BankedPathPiece): RAPIER.ColliderDesc {
   return RAPIER.ColliderDesc.trimesh(vertices, indices)
 }
 
-/** Shape of a ramp: a closed wedge, low edge at z = 0 on the ground, high edge at z = length. */
+/**
+ * Shape of a ramp: a closed wedge, low edge at z = 0 on the ground, high edge at z = length. Both edges are lifted by
+ * GROUND_CLEARANCE, like the road surfaces they meet, so the join has no step.
+ */
 export function rampGeometry(piece: RampPiece) {
   const w = piece.width / 2
-  const { length: l, height: h } = piece
+  const l = piece.length
+  const h = GROUND_CLEARANCE + piece.height
   // 0-1: low edge, 2-3: high edge top, 4-5: high edge bottom.
   // prettier-ignore
   const vertices = new Float32Array([

@@ -75,6 +75,28 @@ test("flick on: a quick tap catches a coasting wheel, even between two physics s
   wheelFlick.set("off")
 })
 
+test("lock: changing it while held does not read as a spin (no flick on release)", async () => {
+  wheelFlick.set("on")
+  resetWheel()
+  wheelLockSetting.set(900)
+  const r = 80
+  grabWheel(0, -r, r)
+  for (let a = 5; a <= 180; a += 5) moveWheel(r * Math.sin((a * Math.PI) / 180), -r * Math.cos((a * Math.PI) / 180), r)
+  for (let i = 0; i < 30; i++) updateWheel(step, 0, still) // held still: spin estimate settles to 0
+  wheelLockSetting.set(360)
+  await new Promise((resolve) => setTimeout(resolve))
+  updateWheel(step, 0, still)
+  releaseWheel()
+  const atRelease = getWheelAngle()
+  for (let i = 0; i < 60; i++) updateWheel(step, 0, still)
+  try {
+    assert.ok(close(getWheelAngle(), atRelease), `coasted from ${atRelease} to ${getWheelAngle()}`)
+  } finally {
+    wheelLockSetting.set(900)
+    wheelFlick.set("off")
+  }
+})
+
 test("lock: a new lock keeps the steer fraction", async () => {
   resetWheel()
   wheelLockSetting.set(900)

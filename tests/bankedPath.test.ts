@@ -2,7 +2,8 @@
 import { test } from "node:test"
 import assert from "node:assert/strict"
 import { DEFAULT_TERRAIN_LAYOUT, buildTerrainPhysics, initRapier } from "@game-loop/shared"
-import { bankedPathGeometry, bankedPathSamples } from "../shared/dist/terrain/bankedPath.js"
+import { GROUND_CLEARANCE, bankedPathGeometry, bankedPathSamples } from "../shared/dist/terrain/bankedPath.js"
+import { rampGeometry } from "../shared/dist/terrain/pieces.js"
 
 const DEG = 180 / Math.PI
 const paths = DEFAULT_TERRAIN_LAYOUT.filter((p) => p.kind === "bankedPath")
@@ -76,6 +77,10 @@ test("oval ramp top meets the outer edge height, and the barrier has a gap there
     if (Math.hypot(wx - top, wz - topZ) < ramp.width / 2 - 0.5) highest = Math.max(highest, vertices[i + 1]!)
   }
   assert.ok(highest <= edge + 0.05, `wall at the ramp: ${highest.toFixed(2)} m, edge ${edge.toFixed(2)} m`)
+  // The ramp's top edge is at the same height as the road edge it meets: no step.
+  const rampTop = Math.max(...Array.from(rampGeometry(ramp).vertices).filter((_, i) => i % 3 === 1))
+  const roadEdgeTop = GROUND_CLEARANCE + edge
+  assert.ok(Math.abs(rampTop - roadEdgeTop) < 1e-6, `ramp top ${rampTop} vs road edge ${roadEdgeTop}`)
 })
 
 test("S curve bank flips sides and is flat at the crossover", () => {
