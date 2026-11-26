@@ -1,6 +1,8 @@
 # Plan: flip button, multiplayer state fix, portrait mode
 
-Status: **revision 2, for owner review.** Issue: ChaDonSom/game-loop#12. Open choices are marked `YOUR CHOICE`.
+Status: **approved (revision 3). Scaffold pushed in this PR.** Issue: ChaDonSom/game-loop#12. Your slots are marked `YOUR CHOICE` in the code.
+
+Revision 3: you chose yes for rounding (M5d) and a player count in the chip (M5f).
 
 Revision 2 changes, from your first review:
 
@@ -84,11 +86,11 @@ Design:
 
 What reliable delivery does not fix: the server must first see that the session closed. On a reload, the page can go before the close reaches the server. Then the server waits for the QUIC idle timeout, and the old car stays on the road for that time. So the client also closes the transport on `pagehide`. In the build, I will measure the time from reload to server cleanup, and report it.
 
-**M5d. Smaller numbers (recommended, optional).** Round on the server before encode: position and velocity to 1 mm (3 decimals), rotation and spin to 4 decimals. This cuts a car to about 300 B, so 3 cars fit in one packet, and it halves the bandwidth. Client prediction does not need more precision than this: `reconcile` ignores errors under 0.25 m. Change only `broadcastState`. The shape stays the same.
+**M5d. Smaller numbers.** Approved. Round on the server before encode: position and velocity to 1 mm (3 decimals), rotation and spin to 4 decimals. This cuts a car to about 300 B, so 3 cars fit in one packet, and it halves the bandwidth. Client prediction does not need more precision than this: `reconcile` ignores errors under 0.25 m. Change only `broadcastState`. The shape stays the same.
 
 **M5e. Never drop in silence.** Before a write, the server checks the size against `maxDatagramSize`. If the packet is too big, log a warning (at most once per minute per session). The next time a message grows, the log shows it at once.
 
-**M5f. Real player count (optional).** With the roster (M5c), the client knows who is connected. The chip can show the roster size, with no protocol change. Or keep the seconds, and fix the chip `title` to "Seconds connected". `YOUR CHOICE`.
+**M5f. Real player count.** With the roster (M5c), the client knows who is connected. The chip shows the roster size, with no protocol change. Approved.
 
 **M5g. Spawn only on a clear spot.** Included per your review. `freeSpawnIndex` now also skips a slot when another car is on its spot.
 
@@ -150,7 +152,7 @@ flowchart LR
 
 `packVehicleStates(states, seq, t, maxBytes)` goes in `shared/src/protocol.ts`, next to the codec. It returns a list of encoded `VehicleStateMessage` parts. `roster` is a new client store next to `authoritativePlayers` in `vue-client/src/store/network.ts`: id to `{ present, rosterSeq }`.
 
-`protocol` changes: `welcome` gains two fields, `join` and the stream `leave` are new, and the datagram `leave` goes away. An old client cannot read the new roster. Deploy server and client together, as `deploy.sh` does. The `worldVersion` check does not cover the protocol, so a stale tab can still connect. Until it reloads, it draws only some cars.
+`protocol` changes: `welcome` gains two fields, `join` and the stream `leave` are new, and the datagram `leave` goes away. An old client cannot read the new roster. Deploy server and client together, as `deploy.sh` does. So `WorldConfig` gains `protocolVersion`, and this change sets it to 2. `WORLD_VERSION` then changes, and a stale tab gets the existing mismatch notice instead of a half-working roster.
 
 ### M7. Tests
 
@@ -303,9 +305,6 @@ One PR against `soapbox-car`, as you chose. Commits in the order M, F, P, so eac
 - M: the 4-session probe from M3.
 - F and P: screenshots at phone size. For frame time, I need your `?perf` readout from the phone. Headless Chromium renders on the CPU, so it cannot show the phone's GPU cost.
 
-## Your choices, in one list
+## Your slots
 
-1. M5d: round the numbers? (recommended)
-2. M5f: chip shows players (roster size), or seconds with a fixed title?
-
-Tuning values (flip tilt, stuck speed, spawn-slot limit) become `YOUR CHOICE` slots in the scaffold, per `AGENTS.md`.
+All plan choices are made. Tuning values (rounding precision, flip tilt, stuck speed and spin, flip lift, button delay, spawn-slot limit) are `YOUR CHOICE` slots in the code, per `AGENTS.md`.
