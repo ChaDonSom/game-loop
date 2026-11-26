@@ -85,14 +85,22 @@ const ovalBankDegrees = 20
 const ovalRoadWidth = 10 * car.width
 
 // Placement (not a slot): behind the spawn ramp, centred on x = 0, z = -260. Region x -200…200, z -480…-40.
+// Turned 90°, so its straights run along X and the side facing the spawn is a flat straight: the way in shows.
 const ovalCenter = { x: 0, z: -260 }
+const ovalTurn = Math.PI / 2
+// In the oval's own frame the path starts at (-radius, -straight/2) from its centre, heading +Z, turning left.
+const ovalStart = { x: -ovalRadius, z: -ovalStraight / 2 }
 const oval: BankedPathPiece = {
   kind: "bankedPath",
   id: "banked-oval",
   surface: "road",
-  // Starts at the bottom of the right-hand straight (the -X side), heading +Z, turning left.
-  position: { x: ovalCenter.x - ovalRadius, y: 0, z: ovalCenter.z - ovalStraight / 2 },
-  rotationY: 0,
+  // The same start point, turned by ovalTurn about +Y into the world.
+  position: {
+    x: ovalCenter.x + ovalStart.x * Math.cos(ovalTurn) + ovalStart.z * Math.sin(ovalTurn),
+    y: 0,
+    z: ovalCenter.z - ovalStart.x * Math.sin(ovalTurn) + ovalStart.z * Math.cos(ovalTurn),
+  },
+  rotationY: ovalTurn,
   roadWidth: ovalRoadWidth,
   segments: [
     { type: "straight", length: ovalStraight },

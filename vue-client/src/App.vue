@@ -2,7 +2,7 @@
 import Datagrams from "@/components/Datagrams.vue"
 import TouchControls from "@/components/TouchControls.vue"
 import { worldMismatch } from "@/store/network"
-import { touchVisible, wheelDragSetting, wheelTargetMark, wheelTrackCue } from "@/input/touch"
+import { touchVisible, wheelDragSetting, wheelTangentReach, wheelTargetMark, wheelTrackCue } from "@/input/touch"
 import { onBeforeUnmount, onMounted, ref } from "vue"
 
 /** Fullscreen on a phone hides the browser's reload button. */
@@ -44,10 +44,14 @@ async function toggleFullscreen() {
 
 // Touch wheel settings. Shown only while the touch controls are.
 const dragMode = wheelDragSetting.value
+const reach = wheelTangentReach.value
 const trackCue = wheelTrackCue.value
 const targetMark = wheelTargetMark.value
 function toggleDragMode() {
   wheelDragSetting.set(dragMode.value === "angular" ? "tangent" : "angular")
+}
+function toggleReach() {
+  wheelTangentReach.set(reach.value === "edge" ? "fixed" : "edge")
 }
 function toggleTrackCue() {
   wheelTrackCue.set(trackCue.value === "on" ? "off" : "on")
@@ -98,6 +102,16 @@ onBeforeUnmount(() => {
         </svg>
       </button>
       <template v-if="dragMode === 'tangent'">
+        <button
+          type="button"
+          class="pill"
+          :class="{ off: reach !== 'edge' }"
+          :title="`Tangent reach: ${reach === 'edge' ? 'to the screen edge' : 'fixed'}`"
+          :aria-label="`Tangent reach: ${reach}`"
+          @click="toggleReach"
+        >
+          edge
+        </button>
         <button
           type="button"
           class="pill"

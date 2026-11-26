@@ -51,7 +51,7 @@ const chevronSide = computed(() => Math.sign(props.cue.target?.s ?? 0) || 1)
       <line class="track" :x1="-cue.minus" y1="0" :x2="cue.plus" y2="0" />
       <line class="lock-tick minus" :x1="-cue.minus" y1="-6" :x2="-cue.minus" y2="6" />
       <line class="lock-tick plus" :x1="cue.plus" y1="-6" :x2="cue.plus" y2="6" />
-      <circle class="finger" :cx="cue.finger" cy="0" r="3" />
+      <circle class="finger" :transform="`translate(${cue.finger} 0)`" r="3" />
       <g v-if="cue.target" class="target" :transform="`translate(${cue.target.s} 0)`">
         <path v-if="!cue.target.clamped" class="target-tick" d="M -3 -7 L 3 -7 L 3 7 L -3 7 Z" />
         <path v-else class="target-chevron" :transform="`scale(${chevronSide} 1)`" d="M -2 -6 L 4 0 L -2 6" />

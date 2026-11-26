@@ -28,8 +28,8 @@ import {
   wheelCenterInset,
   wheelDragMode,
   wheelTargetMark,
+  wheelTangentReach,
   wheelTrackCue,
-  TANGENT_REACH_MODE,
   longPressGear,
   moveWheel,
   pedalValue,
@@ -112,7 +112,8 @@ const layout = computed(() => {
 // ----------------------------------------------------
 
 const wheelEl = ref<HTMLElement | null>(null)
-const wheelGroup = ref<SVGGElement | null>(null)
+const wheelSvg = ref<SVGSVGElement | null>(null)
+let wheelRotate = ""
 const safeRectEl = ref<HTMLElement | null>(null)
 let wheelPointer: number | null = null
 let wheelCenter = { x: 0, y: 0, radius: 1 }
@@ -134,7 +135,8 @@ function onWheelDown(e: PointerEvent) {
   if (activeDrag === "tangent") {
     const t = tangentDirection(dx, dy, center.radius)
     const rect = safeRectEl.value?.getBoundingClientRect() ?? { left: 0, top: 0, right: innerWidth, bottom: innerHeight }
-    grabTangent(dx, dy, center.radius, tangentReach(TANGENT_REACH_MODE, { x: e.clientX, y: e.clientY }, t, rect))
+    const mode = wheelTangentReach.value.value
+    grabTangent(dx, dy, center.radius, tangentReach(mode, { x: e.clientX, y: e.clientY }, t, rect), mode)
   } else {
     grabWheel(dx, dy, center.radius)
   }
@@ -250,50 +252,57 @@ watch(touchVisible, (visible) => {
 // #region MARK: Per-frame visuals
 // ----------------------------------------------------
 
-const gapArc = ref<SVGPathElement | null>(null)
+const gapArc = ref<SVGCircleElement | null>(null)
+const gapArcTurn = ref<HTMLElement | null>(null)
+const gapHeadTurn = ref<HTMLElement | null>(null)
 const gapHead = ref<SVGPathElement | null>(null)
 const cue = ref<TrackCue | null>(null)
 let releasedAt = -Infinity
 
-/** Point on the wheel rim (SVG units, radius `r`) at wheel angle `a` radians. 0 = top, clockwise positive. */
-function rimPoint(a: number, r: number) {
-  return { x: r * Math.sin(a), y: -r * Math.cos(a) }
-}
+const RAD_TO_DEG = 180 / Math.PI
+/** Last values written to the arc, so unchanged frames touch no DOM. */
+const arcState = { shown: false, rotate: "", dash: "", big: false, head: "" }
 
-/** Gap arc: from the current notch to the target, along the rim. Hidden when the gap is small. */
+/**
+ * Gap arc: from the current notch to the target, along the rim. Hidden when the gap is small.
+ * Drawn as a circle with a dash (`pathLength` 360, so dash units are degrees) turned into place, plus a turned
+ * arrowhead. Only transforms and the dash change per frame: no SVG geometry, so no layout each frame.
+ */
 function drawGapArc(angle: number, target: number) {
   const arc = gapArc.value
   const head = gapHead.value
-  if (!arc || !head) return
-  const gap = target - angle
-  const gapDeg = Math.abs(gap) * (180 / Math.PI)
-  if (gapDeg <= ARC_SHOW_GAP_DEG) {
-    arc.style.display = "none"
-    head.style.display = "none"
+  const arcTurn = gapArcTurn.value
+  const headTurn = gapHeadTurn.value
+  if (!arc || !head || !arcTurn || !headTurn) return
+  const gapDeg = (target - angle) * RAD_TO_DEG
+  const shown = Math.abs(gapDeg) > ARC_SHOW_GAP_DEG
+  if (shown !== arcState.shown) {
+    arcState.shown = shown
+    arc.style.display = shown ? "" : "none"
+  }
+  if (!shown) {
+    if (arcState.head) {
+      arcState.head = ""
+      head.style.display = "none"
+    }
     return
   }
-  const span = Math.sign(gap) * Math.min(Math.abs(gap), (ARC_MAX_DEG * Math.PI) / 180)
-  const r = 1.05 // just outside the rim stroke (which reaches 0.96)
-  const a = rimPoint(angle, r)
-  const b = rimPoint(angle + span, r)
-  const large = Math.abs(span) > Math.PI ? 1 : 0
-  const sweep = span > 0 ? 1 : 0 // SVG: 1 = clockwise on screen
-  arc.setAttribute("d", `M ${a.x} ${a.y} A ${r} ${r} 0 ${large} ${sweep} ${b.x} ${b.y}`)
-  arc.classList.toggle("big", gapDeg > ARC_BIG_GAP_DEG)
-  arc.style.display = ""
-  if (Math.abs(gap) > Math.abs(span)) {
-    // Arrowhead at the far end, pointing along the rim in the gap's direction.
-    const end = angle + span
-    const along = { x: Math.cos(end) * Math.sign(span), y: Math.sin(end) * Math.sign(span) }
-    const outward = { x: Math.sin(end), y: -Math.cos(end) }
-    const size = 0.12
-    const tip = { x: b.x + along.x * size, y: b.y + along.y * size }
-    const p1 = { x: b.x + outward.x * size * 0.7, y: b.y + outward.y * size * 0.7 }
-    const p2 = { x: b.x - outward.x * size * 0.7, y: b.y - outward.y * size * 0.7 }
-    head.setAttribute("d", `M ${tip.x} ${tip.y} L ${p1.x} ${p1.y} L ${p2.x} ${p2.y} Z`)
-    head.style.display = ""
-  } else {
-    head.style.display = "none"
+  const angleDeg = angle * RAD_TO_DEG
+  const spanDeg = Math.sign(gapDeg) * Math.min(Math.abs(gapDeg), ARC_MAX_DEG)
+  // A circle's stroke starts at 3 o'clock and runs clockwise. Wheel angles start at 12 o'clock: −90°.
+  const rotate = `rotate(${(Math.min(angleDeg, angleDeg + spanDeg) - 90).toFixed(1)}deg)`
+  const dash = `${Math.abs(spanDeg).toFixed(1)} 360`
+  if (rotate !== arcState.rotate) arcTurn.style.transform = arcState.rotate = rotate
+  if (dash !== arcState.dash) arc.setAttribute("stroke-dasharray", (arcState.dash = dash))
+  const big = Math.abs(gapDeg) > ARC_BIG_GAP_DEG
+  if (big !== arcState.big) arc.classList.toggle("big", (arcState.big = big))
+  // Arrowhead at the far end when the gap is longer than the arc can show. Drawn at 12 o'clock pointing clockwise.
+  const headTransform =
+    Math.abs(gapDeg) > ARC_MAX_DEG ? `rotate(${(angleDeg + spanDeg).toFixed(1)}deg) scaleX(${Math.sign(spanDeg)})` : ""
+  if (headTransform !== arcState.head) {
+    arcState.head = headTransform
+    head.style.display = headTransform ? "" : "none"
+    if (headTransform) headTurn.style.transform = headTransform
   }
 }
 
@@ -321,7 +330,9 @@ function draw() {
   if (!touchVisible.value) return
   const angle = getWheelAngle()
   const target = getWheelTarget()
-  wheelGroup.value?.setAttribute("transform", `rotate(${(angle * 180) / Math.PI})`)
+  // CSS transform on the whole <svg> box: the compositor turns it. Turning SVG content forces a layout each frame.
+  const rotate = `rotate(${(angle * RAD_TO_DEG).toFixed(2)}deg)`
+  if (wheelSvg.value && rotate !== wheelRotate) wheelSvg.value.style.transform = wheelRotate = rotate
   drawGapArc(angle, target)
   const next = buildCue(target)
   if (next || cue.value) cue.value = next
@@ -377,11 +388,8 @@ const brakeFill = pedalFills.brake
       @pointerup="onWheelUp"
       @pointercancel="onWheelUp"
     >
-      <svg viewBox="-1 -1 2 2" :style="layout.wheelSvg" aria-hidden="true">
-        <!-- Gap arc: absolute angles, so it sits outside the rotating group. Look: .gap-arc in the CSS. -->
-        <path ref="gapArc" class="gap-arc" style="display: none" />
-        <path ref="gapHead" class="gap-head" style="display: none" />
-        <g ref="wheelGroup">
+      <svg ref="wheelSvg" class="wheel-face" viewBox="-1 -1 2 2" :style="layout.wheelSvg" aria-hidden="true">
+        <g>
           <circle r="0.86" fill="none" stroke="#1d1d22" stroke-width="0.2" />
           <circle r="0.86" fill="none" stroke="#e8e8ec" stroke-width="0.08" />
           <g stroke="#e8e8ec" stroke-width="0.12" stroke-linecap="round">
@@ -393,6 +401,20 @@ const brakeFill = pedalFills.brake
           <rect x="-0.06" y="-0.98" width="0.12" height="0.24" rx="0.03" fill="#ff8a1f" />
         </g>
       </svg>
+      <!--
+        Gap arc and arrowhead: each in its own HTML layer, turned with a CSS transform on the layer. That runs on the
+        compositor. Turning SVG content instead (attribute or CSS) forces a layout every frame.
+      -->
+      <div ref="gapArcTurn" class="gap-layer">
+        <svg viewBox="-1 -1 2 2" :style="layout.wheelSvg" aria-hidden="true">
+          <circle ref="gapArc" class="gap-arc" r="1.05" pathLength="360" style="display: none" />
+        </svg>
+      </div>
+      <div ref="gapHeadTurn" class="gap-layer">
+        <svg viewBox="-1 -1 2 2" :style="layout.wheelSvg" aria-hidden="true">
+          <path ref="gapHead" class="gap-head" d="M 0.14 -1.05 L 0 -1.15 L 0 -0.95 Z" style="display: none" />
+        </svg>
+      </div>
     </div>
 
     <div
@@ -474,6 +496,22 @@ const brakeFill = pedalFills.brake
 .gap-arc.big {
   stroke: #ff6b3d;
   opacity: 1;
+}
+.wheel-face {
+  will-change: transform;
+}
+.gap-layer {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+  will-change: transform;
+}
+.gap-layer svg {
+  display: block;
+  overflow: visible;
 }
 .gap-head {
   fill: #ff6b3d;

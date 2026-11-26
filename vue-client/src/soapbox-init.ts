@@ -37,6 +37,7 @@ import { queueControls, stateLagSeconds } from "@/network"
 import { authoritativePlayers, myId, mySpawnIndex, worldMismatch } from "@/store/network"
 import reconcile from "@/physics/reconcile"
 import RenderSmoothing from "@/physics/renderSmoothing"
+import { recordFrame } from "@/debug/perfHud"
 
 async function init() {
   const { world } = await initRapier()
@@ -90,6 +91,8 @@ async function init() {
 
   function animate(currentTime: number) {
     requestAnimationFrame(animate)
+    const jsStart = performance.now()
+    const interval = currentTime - lastFrameTime
     const frameDt = Math.min((currentTime - lastFrameTime) / 1000, 0.1)
     lastFrameTime = currentTime
     accumulator += frameDt
@@ -107,6 +110,7 @@ async function init() {
       lastReconciledAck = 0
     }
 
+    const physicsStart = performance.now()
     while (accumulator >= fixedDt) {
       // Center the touch wheel every step, so it is centered when touch comes back after the gamepad.
       // The released wheel turns toward the front axle's direction of travel (countersteer in a slide).
@@ -125,6 +129,7 @@ async function init() {
       smoothing.afterStep()
       accumulator -= fixedDt
     }
+    const physicsMs = performance.now() - physicsStart
 
     const localSnapshot = myId.value ? authoritativePlayers.value[myId.value] : undefined
     if (localSnapshot && localSnapshot.ack > lastReconciledAck) {
@@ -191,7 +196,10 @@ async function init() {
 
     moveWheelMeshesToWorldCoordinates(vehicle, wheelMeshes, chassisMesh, steering)
 
+    const renderStart = performance.now()
     renderer.render(scene, camera)
+    const end = performance.now()
+    recordFrame({ interval, physics: physicsMs, render: end - renderStart, total: end - jsStart })
   }
 
   animate(performance.now())

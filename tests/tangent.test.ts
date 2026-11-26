@@ -35,7 +35,7 @@ for (const [name, [dx, dy]] of Object.entries(grabs)) {
   test(`grab ${name}: +L along t gives +lock, across t no change, back to p0 gives angle0`, () => {
     resetWheel()
     const t = tangentDirection(dx, dy, R)
-    grabTangent(dx, dy, R, { plus: L, minus: L })
+    grabTangent(dx, dy, R, { plus: L, minus: L }, "fixed")
     moveTangent(dx + t.x * L, dy + t.y * L)
     assert.ok(close(getWheelAngle(), halfLock), `${name}: ${getWheelAngle()}`)
     moveTangent(dx - t.y * 50, dy + t.x * 50) // perpendicular to t
@@ -54,11 +54,11 @@ test("clockwise check: top grab drags right, right-side grab drags down", () => 
 
 test("a new grab starts from the current angle", () => {
   resetWheel()
-  grabTangent(0, -R, R, { plus: L, minus: L })
+  grabTangent(0, -R, R, { plus: L, minus: L }, "fixed")
   moveTangent(L / 2, -R)
   releaseWheel()
   const start = getWheelAngle()
-  grabTangent(R, 0, R, { plus: L, minus: L })
+  grabTangent(R, 0, R, { plus: L, minus: L }, "fixed")
   moveTangent(R, 0)
   assert.equal(getWheelAngle(), start)
   releaseWheel()

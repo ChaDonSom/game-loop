@@ -77,10 +77,10 @@ export const TAP_REARM_GAP = 30 * DEG
 export const TANGENT_REACH_PX = 120
 export type TangentReachMode = "fixed" | "edge"
 /**
- * YOUR CHOICE: "fixed" (same px per degree on every grab) or "edge" (the screen edge is always lock).
- * Drive ten slaloms in each mode. In which do you stop looking at the wheel first?
+ * YOUR CHOICE: the default reach mode, before anyone flips the "edge" pill. "fixed" = same px per degree on every
+ * grab. "edge" = the screen edge is always lock. Drive ten slaloms in each. In which do you stop looking at the wheel?
  */
-export const TANGENT_REACH_MODE: TangentReachMode = "fixed"
+export const TANGENT_REACH_DEFAULT: TangentReachMode = "fixed"
 
 /** SLOT. Response curve from normalized wheel angle (−1…1) to steer (−1…1). */
 function applyCurve(x: number) {
@@ -191,6 +191,8 @@ export function syncWheelDragMode() {
   return wheelDragMode.value
 }
 
+/** Reach mode toggle (tangent mode only). Read at each grab. */
+export const wheelTangentReach = storedChoice<TangentReachMode>("touchWheelReach", ["fixed", "edge"], TANGENT_REACH_DEFAULT)
 /** Track cue toggle (tangent mode only). */
 export const wheelTrackCue = storedChoice("touchWheelCue", ["off", "on"] as const, "off")
 /** Target mark on the track toggle (tangent mode only, needs the track cue). */
@@ -270,12 +272,18 @@ export function tangentTrackPosition(grab: TangentGrab, angle: number) {
   return { s: Math.max(-grab.minus, Math.min(grab.plus, s)), clamped }
 }
 
-/** Start a tangent drag. `dx`, `dy` from the wheel center, screen px. `reach` from `tangentReach`. */
-export function grabTangent(dx: number, dy: number, radius: number, reach: { plus: number; minus: number }) {
+/** Start a tangent drag. `dx`, `dy` from the wheel center, screen px. `reach` from `tangentReach` for `mode`. */
+export function grabTangent(
+  dx: number,
+  dy: number,
+  radius: number,
+  reach: { plus: number; minus: number },
+  mode: TangentReachMode,
+) {
   held = true
   lastFingerAngle = null
   tangent = {
-    mode: TANGENT_REACH_MODE,
+    mode,
     t: tangentDirection(dx, dy, radius),
     p0: { x: dx, y: dy },
     angle0: wheelAngle,

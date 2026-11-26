@@ -138,7 +138,7 @@ A new grab starts from the current `wheelAngle`, not from 0. So from full left l
 | Slot | File (planned) | Placeholder | Decision | Where to look |
 | --- | --- | --- | --- | --- |
 | `TANGENT_REACH_PX` (`L_min`) | `touch.ts` | `120` | px of finger travel from a centered wheel to lock. Sets `TANGENT_GAIN` and, with W4a, the wheel position. | Short = quick lock, twitchy at speed. Long = calm, but the wheel moves further in from the corner. |
-| `TANGENT_REACH_MODE` | `touch.ts` | `"fixed"` | `"fixed"` (W4b-1) or `"edge"` (W4b-2). | Drive ten slaloms in each mode. In which mode do you stop looking at the wheel first? |
+| `TANGENT_REACH_DEFAULT` | `touch.ts` | `"fixed"` | The default reach mode: `"fixed"` (W4b-1) or `"edge"` (W4b-2). The "edge" pill in the status bar flips it at runtime (added after the first runtime review). | Drive ten slaloms in each mode. In which mode do you stop looking at the wheel first? |
 | `WheelCue.vue` | `vue-client/src/components/WheelCue.vue` (new) | the W6 look, fully built | How the track line, lock ticks, target tick, and outside-track chevron look. | Fast slide vs normal corner. Visible when needed, quiet otherwise? |
 
 Slots are where the owner writes code. Each one is a working default with a `// YOUR CHOICE` marker.

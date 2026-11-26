@@ -274,7 +274,7 @@ A road surface is a thin sheet. Edge height = road width × tan(bank). At 30° a
 
 Placement is **not a slot** (your call: anywhere, if nothing overlaps). The scaffold puts:
 
-- the oval behind the spawn, in x −200…200 m, z −480…−40 m;
+- the oval behind the spawn, in x −200…200 m, z −480…−40 m, turned 90° so the flat straight faces the spawn (after the first runtime review);
 - the S curve to the left of the bump row, in x 60…400 m, z 60…480 m.
 
 Today's pieces sit in x −40…45 m, z 15…165 m. The spawn ramp sits in x −3…3 m, z −16…6 m. A headless test checks that no two pieces' bounding boxes overlap, and that each piece stays inside the ±500 m walls. The scaffold keeps each piece inside its region at any size you pick in the slots, or the test fails and names the piece.
