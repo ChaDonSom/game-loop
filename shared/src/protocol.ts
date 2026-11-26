@@ -47,7 +47,11 @@ export type VehicleState = {
 // ----------------------------------------------------
 
 export type ClientPositionMessage = { type: "pos"; seq: number; x: number; y: number }
-export type ClientControlsMessage = { type: "controls"; seq: number; keys: Keys; pad: Pad }
+/**
+ * `flip`: count of flip presses this session. It rides in every `controls`, so a lost datagram does not lose a press.
+ * The server flips the car when the count goes up and the car is stuck (`isStuckUpsideDown`). Missing = 0.
+ */
+export type ClientControlsMessage = { type: "controls"; seq: number; keys: Keys; pad: Pad; flip?: number }
 export type ClientMessage = ClientPositionMessage | ClientControlsMessage
 
 // ----------------------------------------------------
@@ -201,7 +205,8 @@ export function isClientControlsMessage(msg: unknown): msg is ClientControlsMess
     Number.isFinite(msg.pad.steer) &&
     Number.isFinite(msg.pad.throttle) &&
     Number.isFinite(msg.pad.brake) &&
-    (msg.pad.reverse === undefined || typeof msg.pad.reverse === "boolean")
+    (msg.pad.reverse === undefined || typeof msg.pad.reverse === "boolean") &&
+    (msg.flip === undefined || (Number.isInteger(msg.flip) && msg.flip >= 0))
   )
 }
 

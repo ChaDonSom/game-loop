@@ -39,6 +39,8 @@ interface PositionInput {
 interface ControlsInput {
   keys: typeof keys
   pad: Pad
+  /** Flip presses this session. See `ClientControlsMessage`. */
+  flip: number
 }
 
 const networkBuffer: PositionInput[] = []
@@ -247,6 +249,7 @@ async function startNetLoop(transport: WebTransport) {
             seq: clientSeq,
             keys: latestControls.keys,
             pad: latestControls.pad,
+            flip: latestControls.flip,
           }),
         )
       } catch (err) {
@@ -382,6 +385,7 @@ export function queueControls(update: ControlsInput) {
   latestControls = {
     keys: { ...update.keys },
     pad: { ...update.pad },
+    flip: update.flip,
   }
 }
 

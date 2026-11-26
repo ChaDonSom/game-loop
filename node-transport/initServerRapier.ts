@@ -13,6 +13,9 @@ import {
   applySurfaceGrip,
   DEFAULT_WORLD,
   isSpawnClear,
+  isStuckUpsideDown,
+  flipUpright,
+  resetDriveState,
   roundVehicleState,
   type VehicleStateMessage,
 } from "@game-loop/shared"
@@ -43,12 +46,15 @@ export default async function initServerRapier(sendState: (message: VehicleState
       vehicle: RAPIER.DynamicRayCastVehicleController
       steering: number
       spawnIndex: number
+      /** Last `flip` count from this player's `controls` that the server acted on. */
+      flipCount: number
     }
   >()
   const defaultControls = {
     seq: 0,
     keys: {},
     pad: { connected: false, steer: 0, throttle: 0, brake: 0 },
+    flip: 0,
     t: Date.now(),
   }
 
@@ -82,7 +88,7 @@ export default async function initServerRapier(sendState: (message: VehicleState
     const chassis = initChassis(world, spawnIndex)
     const vehicle = world.createVehicleController(chassis.body)
     initWheels(chassis, vehicle)
-    players.set(id, { chassis, vehicle, steering: 0, spawnIndex })
+    players.set(id, { chassis, vehicle, steering: 0, spawnIndex, flipCount: 0 })
     return spawnIndex
   }
 
@@ -103,6 +109,15 @@ export default async function initServerRapier(sendState: (message: VehicleState
   function update() {
     for (const [id, player] of players) {
       const currentControls = controls[id] ?? defaultControls
+      // A new press flips the car only if it is stuck here too. The client runs the same rule in the same step.
+      const flipCount = currentControls.flip ?? 0
+      if (flipCount > player.flipCount) {
+        player.flipCount = flipCount
+        if (isStuckUpsideDown(player.chassis.body)) {
+          flipUpright(player.chassis.body)
+          resetDriveState(player.vehicle)
+        }
+      }
       player.steering = handleSteeringAndDrive(
         1 / 60,
         player.chassis.body,

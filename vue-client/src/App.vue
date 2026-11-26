@@ -4,6 +4,7 @@ import TouchControls from "@/components/TouchControls.vue"
 import { worldMismatch } from "@/store/network"
 import { cycleQuality, qualityLevel, qualityOverridden, qualitySetting } from "@/three/quality"
 import { touchVisible, wheelFlick, wheelLockSetting } from "@/input/touch"
+import { canFlip, requestFlip } from "@/input/flip"
 import { onBeforeUnmount, onMounted, ref } from "vue"
 
 /** Fullscreen on a phone hides the browser's reload button. */
@@ -114,6 +115,16 @@ onBeforeUnmount(() => {
       </label>
     </template>
     <p class="tagline">Simple soapbox cars in a shared physics environment.</p>
+    <button
+      v-if="canFlip"
+      type="button"
+      class="pill flip"
+      title="Flip the car upright (F)"
+      aria-label="Flip the car upright"
+      @click="requestFlip"
+    >
+      Flip
+    </button>
   </div>
   <div
     v-if="worldMismatch"
@@ -129,13 +140,14 @@ onBeforeUnmount(() => {
   position: absolute;
   top: calc(env(safe-area-inset-top) + 8px);
   left: calc(env(safe-area-inset-left) + 8px);
-  right: 0;
+  right: calc(env(safe-area-inset-right) + 8px);
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 6px;
   z-index: 11;
 }
 .pill {
+  flex-shrink: 0;
   white-space: nowrap;
   padding: 2px 8px;
   border: 0;
@@ -159,8 +171,23 @@ onBeforeUnmount(() => {
 .pill.off {
   opacity: 0.5;
 }
+/* Big thumb target, at the far right. */
+.pill.flip {
+  margin-left: auto;
+  min-width: 64px;
+  min-height: 44px;
+  padding: 0 16px;
+  background: rgba(196, 72, 24, 0.85);
+  font-size: 16px;
+}
+/* Takes the space left, and cuts off with an ellipsis when the pills need it. */
 .tagline {
+  flex: 1 1 0;
+  min-width: 0;
   margin: 0 0 0 4px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   color: #1a1a24;
 }
 </style>

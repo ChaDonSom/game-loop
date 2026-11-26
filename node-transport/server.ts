@@ -135,6 +135,7 @@ async function handleSession(session: Session) {
           seq: msg.seq,
           keys: msg.keys,
           pad: msg.pad,
+          flip: msg.flip,
           t: Date.now(),
         }
       } catch (e) {

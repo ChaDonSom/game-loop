@@ -1,5 +1,6 @@
 import RAPIER from "@dimforge/rapier3d-compat"
 import { VEHICLE_DIMENSIONS } from "../vehicle/dimensions.js"
+import { chassisAxes, rotateByQuat } from "../math.js"
 
 export const { width: chassisWidth, height: chassisHeight, length: chassisLength } = VEHICLE_DIMENSIONS.chassis
 
@@ -82,4 +83,54 @@ export function isSpawnClear(world: RAPIER.World, spawnIndex: number) {
     RAPIER.QueryFilterFlags.EXCLUDE_FIXED,
   )
   return hit === null
+}
+
+/**
+ * YOUR CHOICE: the car counts as stuck when the world-up part of its up axis is below this. 1 = upright, 0 = on its
+ * side, −1 = on its roof. Look at the tilt a car can still drive out of on the banked oval (`terrain/layout.ts`).
+ */
+const STUCK_MAX_UP = 0.3
+/**
+ * YOUR CHOICE: stuck only below this speed, m/s (1 m/s = 2.237 mph). Too high, and the button shows while the car
+ * still slides on its roof.
+ */
+const STUCK_MAX_SPEED = 0.9
+/** YOUR CHOICE: stuck only below this spin, rad/s. Too high, and the button shows mid-tumble. */
+const STUCK_MAX_SPIN = 1
+/**
+ * YOUR CHOICE: how far the flip lifts the car, m. Look at `chassisHeight` here and the wheel radius and rest length in
+ * `wheels.ts`. Too low, and the wheels start inside the ground. Too high, and the car drops hard.
+ */
+const FLIP_LIFT = 1
+
+/** True when the car lies on its side or roof and has come to rest, so a flip may put it back on its wheels. */
+export function isStuckUpsideDown(body: RAPIER.RigidBody) {
+  const up = rotateByQuat(body.rotation(), { x: 0, y: 1, z: 0 })
+  const v = body.linvel()
+  const w = body.angvel()
+  return (
+    up.y < STUCK_MAX_UP && Math.hypot(v.x, v.y, v.z) < STUCK_MAX_SPEED && Math.hypot(w.x, w.y, w.z) < STUCK_MAX_SPIN
+  )
+}
+
+/**
+ * Puts the car upright, with the same heading, `FLIP_LIFT` higher, at rest. Call `resetDriveState` after it. Server and
+ * client both run it, so the client prediction matches the server.
+ */
+export function flipUpright(body: RAPIER.RigidBody) {
+  const { forward, right } = chassisAxes(body.rotation())
+  // Heading on the ground plane. If the nose points almost straight up or down, the right axis still lies flat.
+  let fx = forward.x
+  let fz = forward.z
+  if (Math.hypot(fx, fz) < 0.2) {
+    fx = right.z
+    fz = -right.x
+  }
+  // Upright yaw θ has forward = (−sin θ, 0, −cos θ).
+  const yaw = Math.atan2(-fx, -fz)
+  body.setRotation({ x: 0, y: Math.sin(yaw / 2), z: 0, w: Math.cos(yaw / 2) }, true)
+  const p = body.translation()
+  body.setTranslation({ x: p.x, y: p.y + FLIP_LIFT, z: p.z }, true)
+  body.setLinvel({ x: 0, y: 0, z: 0 }, true)
+  body.setAngvel({ x: 0, y: 0, z: 0 }, true)
 }

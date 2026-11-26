@@ -13,6 +13,8 @@ import {
   buildTerrainPhysics,
   applySurfaceGrip,
   frontAxleSlip,
+  isStuckUpsideDown,
+  flipUpright,
   DEFAULT_WORLD,
 } from "@game-loop/shared"
 import {
@@ -28,7 +30,15 @@ import {
   initWheels as initWheelMeshes,
   buildTerrainMeshes,
 } from "./three"
-import getGamePadState from "@/input/pad"
+import getGamePadState, { gamepadButtonHeld } from "@/input/pad"
+import {
+  GAMEPAD_FLIP_BUTTON,
+  getFlipCount,
+  pollGamepadFlip,
+  resetFlip,
+  takeFlipPress,
+  updateCanFlip,
+} from "@/input/flip"
 import keys from "@/input/keys"
 import { frontRolling, getTouchPad, resetWheel, touchVisible, updateWheel } from "@/input/touch"
 import { moveWheelMeshesToWorldCoordinates } from "@/three/wheels"
@@ -110,6 +120,7 @@ async function init() {
       resetChassisToSpawn(chassis.body, mySpawnIndex.value)
       resetDriveState(vehicle)
       resetWheel()
+      resetFlip()
       smoothing.reset()
       spawnedForId = myId.value
       lastReconciledAck = 0
@@ -124,7 +135,18 @@ async function init() {
       if (gamepad.connected && touchVisible.value) touchVisible.value = false
       const pad = gamepad.connected ? gamepad : touchVisible.value ? getTouchPad() : gamepad
       const currentKeys = { ...keys }
-      queueControls({ keys: currentKeys, pad })
+
+      // A flip press goes to the server in `controls`. The server runs the same rule on the same step.
+      pollGamepadFlip(gamepad.connected && gamepadButtonHeld(GAMEPAD_FLIP_BUTTON))
+      if (takeFlipPress() && isStuckUpsideDown(chassis.body)) {
+        flipUpright(chassis.body)
+        resetDriveState(vehicle)
+        resetWheel()
+        smoothing.reset()
+      }
+      updateCanFlip(fixedDt, isStuckUpsideDown(chassis.body))
+
+      queueControls({ keys: currentKeys, pad, flip: getFlipCount() })
       steering = handleSteeringAndDrive(fixedDt, chassis.body, pad, currentKeys, vehicle).steering
 
       applySurfaceGrip(vehicle, terrain, DEFAULT_WORLD.surfaceGrip)

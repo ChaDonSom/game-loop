@@ -9,6 +9,11 @@ function pickGamepad(): Gamepad | null {
   return pads.find((pad): pad is Gamepad => !!pad?.connected && pad.mapping === "standard") ?? null
 }
 
+/** True while gamepad button `index` (standard mapping) is down. */
+export function gamepadButtonHeld(index: number) {
+  return pickGamepad()?.buttons[index]?.pressed ?? false
+}
+
 export default function getGamePadState() {
   const gp = pickGamepad()
   if (!gp) {
