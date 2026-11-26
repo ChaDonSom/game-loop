@@ -5,12 +5,19 @@ import { VEHICLE_DIMENSIONS, type VehicleDimensions } from "./vehicle/dimensions
 
 /** Every shared simulation input that is data. Server and client must hold the same values. */
 export type WorldConfig = {
+  /**
+   * Wire protocol version. Not world data, but server and client must agree on it too, and the hash check already
+   * exists. Raise it on any change that an old client or server cannot read.
+   * 2: `state` in parts, `join` and `leave` on streams (plan `issue-12-flip-multiplayer-portrait.md`).
+   */
+  protocolVersion: number
   layout: TerrainLayout
   surfaceGrip: SurfaceGrip
   vehicle: VehicleDimensions
 }
 
 export const DEFAULT_WORLD: WorldConfig = {
+  protocolVersion: 2,
   layout: DEFAULT_TERRAIN_LAYOUT,
   surfaceGrip: DEFAULT_SURFACE_GRIP,
   vehicle: VEHICLE_DIMENSIONS,

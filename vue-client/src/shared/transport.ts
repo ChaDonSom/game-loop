@@ -42,6 +42,15 @@ export async function getTransport(): Promise<WebTransport> {
   return nextTransport
 }
 
+/** Closes the current connection, if there is one. Unlike `getTransport`, never opens a new one. */
+export function closeTransport() {
+  try {
+    transport?.close()
+  } catch {
+    // Already closing or closed.
+  }
+}
+
 function shouldPinLocalCertificate(transportUrl: string) {
   const hostname = new URL(transportUrl).hostname
   if (

@@ -61,3 +61,25 @@ export function resetChassisToSpawn(body: RAPIER.RigidBody, spawnIndex: number) 
   body.setAngvel({ x: 0, y: 0, z: 0 }, true)
 }
 
+
+/** Spawn pose rotation at unit length. Shape queries need a unit quaternion. Rapier normalizes it only for bodies. */
+function unitRotation(q: { x: number; y: number; z: number; w: number }) {
+  const length = Math.hypot(q.x, q.y, q.z, q.w)
+  return { x: q.x / length, y: q.y / length, z: q.z / length, w: q.w / length }
+}
+
+/**
+ * True when no car is on the spot of a spawn slot. Tests a chassis box at the slot pose against cars only: fixed
+ * colliders (ramp, ground, walls, terrain) do not count. Uses the broad phase of the last `world.step()`.
+ */
+export function isSpawnClear(world: RAPIER.World, spawnIndex: number) {
+  const pose = spawnPose(spawnIndex)
+  const box = new RAPIER.Cuboid(chassisWidth / 2, chassisHeight / 2, chassisLength / 2)
+  const hit = world.intersectionWithShape(
+    pose.translation,
+    unitRotation(pose.rotation),
+    box,
+    RAPIER.QueryFilterFlags.EXCLUDE_FIXED,
+  )
+  return hit === null
+}

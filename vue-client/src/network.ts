@@ -1,9 +1,10 @@
-import { getTransport } from "@/shared/transport"
+import { closeTransport, getTransport } from "@/shared/transport"
 import {
   authoritativePlayers,
   connectionStatus,
   myId,
   mySpawnIndex,
+  playerCount,
   remotePlayers,
   serverCount,
   worldMismatch,
@@ -23,6 +24,7 @@ import {
   WORLD_VERSION,
 } from "@game-loop/shared"
 import { handleWorldMismatch } from "@/worldMismatch"
+import { Roster } from "@/roster"
 import keys from "@/input/keys"
 
 const MS_PER_UPDATE = 1000 / 30 // ~30 updates per second
@@ -43,8 +45,10 @@ const networkBuffer: PositionInput[] = []
 let latestControls: ControlsInput | null = null
 let clientSeq = 0
 let lastCountSeq = -1
-let lastStateSeq = -1
+/** Last `state` seq per vehicle id. One tick can come in several parts with the same seq. */
+const lastVehicleSeq = new Map<string, number>()
 const lastPlayerSeq = new Map<string, number>()
+const roster = new Roster()
 /** Send time (performance.now) of recent `controls` datagrams, by seq. Used to measure round-trip time. */
 const controlsSentAt = new Map<number, number>()
 const MAX_TRACKED_CONTROLS = 120
@@ -62,6 +66,8 @@ export async function initNetwork() {
 
   try {
     const transport = await getTransport()
+    // A new connection can be to a restarted server, whose `rosterSeq` starts again from 0.
+    resetRoster()
     connectionStatus.value = "connected"
     reconnectAttempts = 0
     syncHotState()
@@ -121,11 +127,6 @@ function handleDatagram(msg: ServerDatagramMessage) {
     case "state":
       upsertAuthoritativePlayers(msg)
       return
-    case "leave":
-      delete remotePlayers.value[msg.id]
-      delete authoritativePlayers.value[msg.id]
-      lastPlayerSeq.delete(msg.id)
-      return
   }
 }
 
@@ -176,6 +177,8 @@ async function handleIncomingStream(stream: ReadableStream<Uint8Array>) {
         console.log("Received welcome message:", msg)
         myId.value = msg.yourId
         mySpawnIndex.value = msg.spawnIndex
+        roster.applySnapshot(msg.players ?? [msg.yourId], msg.rosterSeq ?? 0)
+        syncRoster()
         if (msg.worldVersion !== WORLD_VERSION) {
           handleWorldMismatch(msg.worldVersion ?? null)
           // Leave the server. It then removes this player's car, so no stale input keeps driving it.
@@ -186,6 +189,10 @@ async function handleIncomingStream(stream: ReadableStream<Uint8Array>) {
         for (const player of msg.players) {
           if (player.id !== myId.value) upsertRemotePlayer(player)
         }
+        return
+      case "join":
+      case "leave":
+        if (roster.apply(msg.id, msg.type === "join", msg.rosterSeq)) syncRoster()
         return
     }
   } catch (err) {
@@ -281,17 +288,47 @@ function upsertRemotePlayer(msg: Pick<PositionBroadcastMessage, "id" | "seq" | "
   }
 }
 
+/**
+ * Merges one `state` part. A vehicle entry counts only if it is newer than that vehicle's last one, and only while the
+ * roster has the player: a late datagram after a `leave` must not bring the car back.
+ */
 function upsertAuthoritativePlayers(msg: VehicleStateMessage) {
-  if (msg.seq <= lastStateSeq) return // drop duplicate or out-of-order state
-  lastStateSeq = msg.seq
-
-  const snapshots: Record<string, VehicleSnapshot> = {}
   const time = performance.now()
+  let next: Record<string, VehicleSnapshot> | null = null
   for (const player of msg.players) {
-    snapshots[player.id] = { ...player, seq: msg.seq, time }
+    if (!roster.has(player.id)) continue
+    if (msg.seq <= (lastVehicleSeq.get(player.id) ?? -1)) continue // drop duplicate or out-of-order state
+    lastVehicleSeq.set(player.id, msg.seq)
+    next ??= { ...authoritativePlayers.value }
+    next[player.id] = { ...player, seq: msg.seq, time }
   }
+  if (next) authoritativePlayers.value = next
+}
 
-  authoritativePlayers.value = snapshots
+/** Drops every player the roster no longer has, and updates the count. */
+function syncRoster() {
+  playerCount.value = roster.size
+  const kept: Record<string, VehicleSnapshot> = {}
+  let removed = false
+  for (const [id, snapshot] of Object.entries(authoritativePlayers.value)) {
+    if (roster.has(id)) kept[id] = snapshot
+    else removed = true
+  }
+  if (removed) authoritativePlayers.value = kept
+  for (const id of Object.keys(remotePlayers.value)) {
+    if (!roster.has(id)) delete remotePlayers.value[id]
+  }
+  for (const id of lastVehicleSeq.keys()) if (!roster.has(id)) lastVehicleSeq.delete(id)
+  for (const id of lastPlayerSeq.keys()) if (!roster.has(id)) lastPlayerSeq.delete(id)
+}
+
+function resetRoster() {
+  roster.clear()
+  playerCount.value = null
+  authoritativePlayers.value = {}
+  remotePlayers.value = {}
+  lastVehicleSeq.clear()
+  lastPlayerSeq.clear()
 }
 
 function handleDisconnect() {
@@ -350,6 +387,10 @@ export function queueControls(update: ControlsInput) {
 
 // Auto-start network on load
 void initNetwork()
+
+// Close on page hide (reload, tab close). Then the server sees the close at once, and removes this car for everyone.
+// Without it, the server can wait for the connection's idle timeout, and the old car stays on the road until then.
+window.addEventListener("pagehide", closeTransport)
 
 if (import.meta.hot) {
   import.meta.hot.accept()

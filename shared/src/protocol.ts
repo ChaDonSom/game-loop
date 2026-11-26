@@ -7,8 +7,10 @@
  *
  * Channels:
  * - Datagrams (unreliable, unordered): client -> server `pos` / `controls`; server -> client `count`, `pos`,
- *   `state`, `leave`. Each sender stamps a `seq` so the receiver can drop duplicates and stale packets.
- * - Unidirectional streams (reliable): server -> client `welcome` and the initial `state` snapshot of other players.
+ *   `state`. Each sender stamps a `seq` so the receiver can drop duplicates and stale packets. Use a datagram only for
+ *   data that a later packet repeats: a lost one then does not matter.
+ * - Unidirectional streams (reliable): server -> client `welcome`, `join`, `leave`, and the initial `state` snapshot
+ *   of other players. One stream per message, so two messages have no order between them (see `rosterSeq`).
  */
 import type { Keys, Pad } from "./controls/types.js"
 
@@ -56,21 +58,36 @@ export type ClientMessage = ClientPositionMessage | ClientControlsMessage
  * Stream. Tells a new client its assigned id and spawn slot (see `spawnPose`).
  * `worldVersion`: hash of the server's world data (see `world.ts`). Missing from servers older than the check,
  * so the client treats a missing value as a mismatch.
+ * `players`: ids connected now, this client included, as of `rosterSeq`. Missing from older servers.
  */
-export type WelcomeMessage = { type: "welcome"; yourId: string; spawnIndex: number; worldVersion?: string }
+export type WelcomeMessage = {
+  type: "welcome"
+  yourId: string
+  spawnIndex: number
+  worldVersion?: string
+  players?: string[]
+  rosterSeq?: number
+}
+/**
+ * Stream. A player connected (`join`) or disconnected (`leave`). Reliable: no later packet repeats a one-time event.
+ * `rosterSeq`: one server counter, up by 1 on each join or leave. Streams have no order between them, so a `leave` can
+ * arrive before the `join` of the same id. The client keeps the last `rosterSeq` per id and ignores older events.
+ */
+export type RosterMessage = { type: "join" | "leave"; id: string; rosterSeq: number }
 /** Stream. Last known positions of the players already connected when a client joins. */
 export type InitialPositionsMessage = { type: "state"; players: Array<{ id: string } & PositionSnapshot> }
 /** Datagram. Once-per-second heartbeat. */
 export type CountMessage = { type: "count"; seq: number; count: number; t: number }
 /** Datagram. Relays one client's reported position to the other clients. */
 export type PositionBroadcastMessage = { type: "pos"; id: string } & PositionSnapshot
-/** Datagram. Authoritative physics state for all vehicles, sent at the server broadcast rate. */
+/**
+ * Datagram. Authoritative physics state of vehicles, sent at the server broadcast rate. One tick can come in several
+ * parts (see `packVehicleStates`), all with the same `seq`, so the receiver checks `seq` per vehicle id.
+ */
 export type VehicleStateMessage = { type: "state"; seq: number; players: VehicleState[]; t: number }
-/** Datagram. A player disconnected. */
-export type LeaveMessage = { type: "leave"; id: string }
 
-export type ServerStreamMessage = WelcomeMessage | InitialPositionsMessage
-export type ServerDatagramMessage = CountMessage | PositionBroadcastMessage | VehicleStateMessage | LeaveMessage
+export type ServerStreamMessage = WelcomeMessage | InitialPositionsMessage | RosterMessage
+export type ServerDatagramMessage = CountMessage | PositionBroadcastMessage | VehicleStateMessage
 
 // ----------------------------------------------------
 // #region MARK: Codec
@@ -81,6 +98,68 @@ const decoder = new TextDecoder()
 
 export function encodeMessage(message: ClientMessage | ServerStreamMessage | ServerDatagramMessage): Uint8Array {
   return encoder.encode(JSON.stringify(message))
+}
+
+/**
+ * Size budget for one datagram when the session does not report one, in bytes. Chromium reported 1211 for this server.
+ */
+export const FALLBACK_MAX_DATAGRAM_BYTES = 1100
+
+/**
+ * Encodes one tick of vehicle states as one or more `state` datagrams, each at most `maxBytes` long. All parts keep
+ * the same `seq`. A vehicle never splits, so a part always holds at least one vehicle, even if that one is too big.
+ */
+export function packVehicleStates(players: VehicleState[], seq: number, t: number, maxBytes: number): Uint8Array[] {
+  const parts: Uint8Array[] = []
+  let current: VehicleState[] = []
+  let currentBytes: Uint8Array | null = null
+  for (const player of players) {
+    const candidate = encodeMessage({ type: "state", seq, players: [...current, player], t })
+    if (currentBytes && candidate.length > maxBytes) {
+      parts.push(currentBytes)
+      current = [player]
+      currentBytes = encodeMessage({ type: "state", seq, players: current, t })
+      continue
+    }
+    current.push(player)
+    currentBytes = candidate
+  }
+  if (currentBytes) parts.push(currentBytes)
+  return parts
+}
+
+/**
+ * YOUR CHOICE: decimals kept on the wire. Fewer decimals: smaller packets, more cars per packet, less precision.
+ * Look at `reconcile.ts` dead zones (`POSITION_DEAD_ZONE`, `ROTATION_DEAD_ZONE`) for the precision the client needs,
+ * and at the M3 table in the plan for bytes per car.
+ */
+const POSITION_DECIMALS = 3
+const VELOCITY_DECIMALS = 3
+const ROTATION_DECIMALS = 4
+const SPIN_DECIMALS = 4
+const STEERING_DECIMALS = 4
+
+function round(value: number, decimals: number) {
+  const scale = 10 ** decimals
+  return Math.round(value * scale) / scale
+}
+
+function roundVector<T extends Record<string, number>>(vector: T, decimals: number): T {
+  const out = {} as Record<string, number>
+  for (const key in vector) out[key] = round(vector[key], decimals)
+  return out as T
+}
+
+/** Rounds a vehicle state for the wire. The shape stays the same. The rotation can be off unit length by ~1e-4. */
+export function roundVehicleState(state: VehicleState): VehicleState {
+  return {
+    ...state,
+    position: roundVector(state.position, POSITION_DECIMALS),
+    rotation: roundVector(state.rotation, ROTATION_DECIMALS),
+    velocity: roundVector(state.velocity, VELOCITY_DECIMALS),
+    angularVelocity: roundVector(state.angularVelocity, SPIN_DECIMALS),
+    steering: round(state.steering, STEERING_DECIMALS),
+  }
 }
 
 /** Parses a packet. Returns `unknown`: run a validator before you trust the shape. Throws on invalid JSON. */
@@ -160,8 +239,14 @@ export function isServerStreamMessage(msg: unknown): msg is ServerStreamMessage 
         typeof msg.yourId === "string" &&
         Number.isInteger(msg.spawnIndex) &&
         msg.spawnIndex >= 0 &&
-        (msg.worldVersion === undefined || typeof msg.worldVersion === "string")
+        (msg.worldVersion === undefined || typeof msg.worldVersion === "string") &&
+        (msg.players === undefined ||
+          (Array.isArray(msg.players) && msg.players.every((id: unknown) => typeof id === "string"))) &&
+        (msg.rosterSeq === undefined || (Number.isInteger(msg.rosterSeq) && msg.rosterSeq >= 0))
       )
+    case "join":
+    case "leave":
+      return typeof msg.id === "string" && Number.isInteger(msg.rosterSeq) && msg.rosterSeq >= 0
     case "state":
       return (
         Array.isArray(msg.players) &&
@@ -190,8 +275,6 @@ export function isServerDatagramMessage(msg: unknown): msg is ServerDatagramMess
         Array.isArray(msg.players) &&
         msg.players.every(isVehicleState)
       )
-    case "leave":
-      return typeof msg.id === "string"
     default:
       return false
   }

@@ -12,6 +12,8 @@ import {
   buildTerrainPhysics,
   applySurfaceGrip,
   DEFAULT_WORLD,
+  isSpawnClear,
+  roundVehicleState,
   type VehicleStateMessage,
 } from "@game-loop/shared"
 import { clamp } from "@game-loop/shared"
@@ -24,7 +26,7 @@ import controls from "./controls.js"
  * physics-world state broadcasts.
  * TODO: Finish implementing server-side physics loop and state broadcasting.
  */
-export default async function initServerRapier(broadcastDatagram: (message: VehicleStateMessage) => void) {
+export default async function initServerRapier(sendState: (message: VehicleStateMessage) => void) {
   // ----------------------------------------------------
   // #region MARK: 1. INITIALIZE RAPIER WASM & PHYSICS WORLD
   // ----------------------------------------------------
@@ -43,11 +45,29 @@ export default async function initServerRapier(broadcastDatagram: (message: Vehi
       spawnIndex: number
     }
   >()
-  const defaultControls = { seq: 0, keys: {}, pad: { connected: false, steer: 0, throttle: 0, brake: 0 }, t: Date.now() }
+  const defaultControls = {
+    seq: 0,
+    keys: {},
+    pad: { connected: false, steer: 0, throttle: 0, brake: 0 },
+    t: Date.now(),
+  }
 
-  /** Lowest spawn slot no connected player holds. A slot frees up when its player leaves. */
+  /**
+   * YOUR CHOICE: how many spawn slots to try for a clear spot. Each row of 2 slots is 3 m further down the ramp
+   * (`spawnPose` in `shared/src/rapier/chassis.ts`, ramp in `shared/src/rapier/ramp.ts`). Too many, and a new car can
+   * start off the ramp.
+   */
+  const SPAWN_SLOTS_TO_TRY = 6
+
+  /**
+   * Lowest spawn slot that no connected player holds and no car sits on. A slot frees up when its player leaves. If no
+   * slot in range is clear, the lowest slot no player holds, even if a car sits on it (the old rule).
+   */
   function freeSpawnIndex() {
     const taken = new Set(Array.from(players.values(), (player) => player.spawnIndex))
+    for (let index = 0; index < SPAWN_SLOTS_TO_TRY; index++) {
+      if (!taken.has(index) && isSpawnClear(world, index)) return index
+    }
     let index = 0
     while (taken.has(index)) index++
     return index
@@ -99,7 +119,7 @@ export default async function initServerRapier(broadcastDatagram: (message: Vehi
 
   function broadcastState() {
     const now = Date.now()
-    broadcastDatagram({
+    sendState({
       type: "state",
       seq: ++stateSeq,
       players: Array.from(players, ([id, player]) => {
@@ -108,7 +128,7 @@ export default async function initServerRapier(broadcastDatagram: (message: Vehi
         const velocity = player.chassis.body.linvel()
         const angularVelocity = player.chassis.body.angvel()
         const playerControls = controls[id]
-        return {
+        return roundVehicleState({
           id,
           ack: playerControls?.seq ?? 0,
           ackAgeMs: playerControls ? Math.max(0, now - playerControls.t) : 0,
@@ -117,7 +137,7 @@ export default async function initServerRapier(broadcastDatagram: (message: Vehi
           velocity: { x: velocity.x, y: velocity.y, z: velocity.z },
           angularVelocity: { x: angularVelocity.x, y: angularVelocity.y, z: angularVelocity.z },
           steering: player.steering,
-        }
+        })
       }),
       t: now,
     })

@@ -11,10 +11,25 @@ import {
   encodeMessage,
   isClientControlsMessage,
   isClientPositionMessage,
+  packVehicleStates,
+  FALLBACK_MAX_DATAGRAM_BYTES,
   type PositionSnapshot,
   type ServerDatagramMessage,
   type ServerStreamMessage,
+  type VehicleStateMessage,
 } from "@game-loop/shared"
+
+type Session = {
+  ready: Promise<void>
+  visitorId?: string
+  datagrams: {
+    readable: ReadableStream<Uint8Array>
+    writable: WritableStream<Uint8Array>
+    maxDatagramSize?: number
+  }
+  closed: Promise<void>
+  createUnidirectionalStream: () => Promise<WritableStream<Uint8Array>>
+}
 
 const CERT_PATH = process.env.CERT_PATH ?? ""
 const PRIV_KEY_PATH = process.env.PRIV_KEY_PATH ?? ""
@@ -42,14 +57,16 @@ const server = new Http3Server({
   cert: process.env.CERT_PATH ? readFileSync(CERT_PATH) : undefined,
   privKey: process.env.PRIV_KEY_PATH ? readFileSync(PRIV_KEY_PATH) : undefined,
 })
-const activeSessions = new Map()
+const activeSessions = new Map<string, Session>()
+/** Up by 1 on each join or leave. Lets a client order roster events that arrive on separate streams. */
+let rosterSeq = 0
 const playerSnapshots = new Map<string, PositionSnapshot>()
 
 const sessionStream = server.sessionStream("/wt")
 server.startServer()
 await server.ready
 console.log(`HTTP/3 listening on 0.0.0.0:${WT_PORT} - waiting for WebTransport sessions...`)
-const simulation = await initServerRapier(broadcastDatagram)
+const simulation = await initServerRapier(broadcastState)
 ;(async () => {
   const reader = sessionStream.getReader()
 
@@ -63,13 +80,7 @@ const simulation = await initServerRapier(broadcastDatagram)
   }
 })().catch((err) => console.error("Session loop crashed:", err))
 
-async function handleSession(session: {
-  ready: Promise<void>
-  visitorId?: string
-  datagrams: { readable: ReadableStream<Uint8Array>; writable: WritableStream<Uint8Array> }
-  closed: Promise<void>
-  createUnidirectionalStream: () => Promise<WritableStream<Uint8Array>>
-}) {
+async function handleSession(session: Session) {
   await session.ready
   console.log("client connected")
 
@@ -77,8 +88,17 @@ async function handleSession(session: {
   session.visitorId = visitorId
   activeSessions.set(visitorId, session)
   const spawnIndex = simulation.addPlayer(visitorId)
+  rosterSeq++
+  broadcastStream({ type: "join", id: visitorId, rosterSeq }, visitorId)
 
-  sendJsonMessage(session, { type: "welcome", yourId: visitorId, spawnIndex, worldVersion: WORLD_VERSION }).catch((err) => {
+  sendJsonMessage(session, {
+    type: "welcome",
+    yourId: visitorId,
+    spawnIndex,
+    worldVersion: WORLD_VERSION,
+    players: Array.from(activeSessions.keys()),
+    rosterSeq,
+  }).catch((err) => {
     console.error("Failed to send welcome packet:", err)
   })
 
@@ -126,36 +146,85 @@ async function handleSession(session: {
   let count = 0
   const interval = setInterval(() => {
     count++
-    const payload = encodeMessage({ type: "count", seq: count, count, t: Date.now() })
-    const writer = session.datagrams.writable.getWriter()
-    writer.write(payload).catch(() => {}) // drop silently if it fails, this is the point for unreliable datagrams
-    writer.releaseLock()
+    writeDatagram(session, encodeMessage({ type: "count", seq: count, count, t: Date.now() }))
   }, 1000)
 
+  const connectedAt = Date.now()
+  let cleanedUp = false
   const cleanup = () => {
+    if (cleanedUp) return
+    cleanedUp = true
     clearInterval(interval)
     if (session.visitorId) {
       activeSessions.delete(session.visitorId)
       simulation.removePlayer(session.visitorId)
       playerSnapshots.delete(session.visitorId)
-      broadcastDatagram({ type: "leave", id: session.visitorId })
+      rosterSeq++
+      broadcastStream({ type: "leave", id: session.visitorId, rosterSeq })
+      console.log(`client left after ${((Date.now() - connectedAt) / 1000).toFixed(1)} s`)
     }
   }
 
   session.closed.then(cleanup).catch(cleanup)
 }
 
+/** The session's datagram size limit, or the fallback if it reports none. */
+function maxDatagramBytes(session: Session) {
+  const size = session.datagrams.maxDatagramSize
+  return typeof size === "number" && size > 0 ? size : FALLBACK_MAX_DATAGRAM_BYTES
+}
+
+const lastTooBigWarning = new WeakMap<Session, number>()
+
+/**
+ * Writes one datagram. A loss is fine: that is the point of datagrams. A datagram over the size limit is a bug, not a
+ * loss: the WebTransport library drops it without an error. So warn, at most once a minute per session.
+ */
+function writeDatagram(session: Session, payload: Uint8Array) {
+  const limit = maxDatagramBytes(session)
+  if (payload.length > limit) {
+    const now = Date.now()
+    if (now - (lastTooBigWarning.get(session) ?? 0) > 60_000) {
+      lastTooBigWarning.set(session, now)
+      console.warn(`Datagram of ${payload.length} B is over the ${limit} B limit. It will be dropped.`)
+    }
+  }
+  try {
+    const writer = session.datagrams.writable.getWriter()
+    writer.write(payload).catch(() => {})
+    writer.releaseLock()
+  } catch {
+    // ignore if locked or closed
+  }
+}
+
 function broadcastDatagram(message: ServerDatagramMessage, excludedVisitorId?: string) {
   const payload = encodeMessage(message)
   for (const [id, s] of activeSessions) {
     if (id === excludedVisitorId) continue
-    try {
-      const writer = s.datagrams.writable.getWriter()
-      writer.write(payload).catch(() => {})
-      writer.releaseLock()
-    } catch {
-      // ignore if locked or closed
+    writeDatagram(s, payload)
+  }
+}
+
+/** Sends one tick of vehicle state to every session, split into parts that fit that session's datagram limit. */
+function broadcastState(message: VehicleStateMessage) {
+  const partsByLimit = new Map<number, Uint8Array[]>()
+  for (const s of activeSessions.values()) {
+    const limit = maxDatagramBytes(s)
+    let parts = partsByLimit.get(limit)
+    if (!parts) {
+      parts = packVehicleStates(message.players, message.seq, message.t, limit)
+      partsByLimit.set(limit, parts)
     }
+    for (const part of parts) writeDatagram(s, part)
+  }
+}
+
+/** Sends one message on a reliable stream to every session, except `excludedVisitorId`. */
+function broadcastStream(message: ServerStreamMessage, excludedVisitorId?: string) {
+  for (const [id, s] of activeSessions) {
+    if (id === excludedVisitorId) continue
+    sendJsonMessage(s, message).catch((err) => console.error(`Failed to send ${message.type} packet:`, err))
   }
 }
 
