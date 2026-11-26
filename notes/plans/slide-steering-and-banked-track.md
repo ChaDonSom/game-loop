@@ -1,20 +1,30 @@
-# Plan: slider steering, slide-aware centering, banked oval and S curve
+# Plan: tangent wheel drag, slide-aware centering, banked oval and S curve
 
-Status: **draft. Review it, please.** No code yet.
+Status: **revision 2, after your first review.** No code yet.
 
-Three changes in one plan. Each can ship alone, in this order:
+Revision 2 changes:
 
-1. **Slider steering (S).** A touch mode. A drag in the bottom half of the screen steers by its horizontal position.
-2. **Slide-aware centering (C).** A released touch wheel goes to where the front wheels "want" to point, not to 0. A cue shows that angle.
+- The bottom-half slider (S) is **shelved**. Your reasons are kept below in "Shelved: bottom-half slider".
+- **Tangent drag (W)** takes its place. Its plan is your attachment, now `notes/plans/tangent-wheel-drag.md`.
+- The cue (C5) is now a **gap arc** plus a **haptic tap**, as you chose.
+- Banked roads (T): longer bank transitions, a way onto the oval, a barrier choice, placement, and speeds in mph.
+- Keys keep today's centering. The old banked turn stays, with longer transitions.
+
+Three changes in one PR. Each can ship alone, in this order:
+
+1. **Tangent wheel drag (W).** An optional drag mode for the touch wheel. See `notes/plans/tangent-wheel-drag.md`.
+2. **Slide-aware centering (C).** A released touch wheel goes to where the front wheels "want" to point, not to 0. A gap arc and a haptic tap show that angle.
 3. **Banked oval and banked S curve (T).** Two new track pieces, from one general banked-road builder.
 
-Not in this plan: slide-aware centering for keys and gamepad. Keys center in `shared/src/controls/handleSteeringAndDrive.ts` (`steering *= 0.9`). A gamepad has its own spring. See "Open questions".
+Not in this plan: slide-aware centering for keys and gamepad. Keys center in `shared/src/controls/handleSteeringAndDrive.ts` (`steering *= 0.9`), and that stays. A gamepad has a physical spring, so only force feedback could do it.
+
+Units: speeds are in mph, with m/s in brackets where the code uses m/s. 1 m/s = 2.237 mph.
 
 ## How this fits
 
 The touch wheel is a client-only input. `vue-client/src/input/touch.ts` holds `wheelAngle`. `getTouchPad()` turns it into `pad.steer`. The pad goes to the server in `controls`. The server never sees the wheel, only `pad.steer`.
 
-So changes S and C are **client only**. They change what the client sends, not how physics runs. No protocol change. No server change. Prediction stays correct, because the server applies the same `pad.steer` the client applied.
+So changes W and C are **client only**. They change what the client sends, not how physics runs. No protocol change. No server change. Prediction stays correct, because the server applies the same `pad.steer` the client applied.
 
 Change T is shared data. Server and client build the same colliders from `DEFAULT_TERRAIN_LAYOUT`. The `worldVersion` hash covers the layout, so an old tab sees a mismatch (from the terrain step, D5).
 
@@ -22,30 +32,7 @@ Change T is shared data. Server and client build the same colliders from `DEFAUL
 
 Three diagrams, one per change. Legend: `notes/diagram-legend.md`. Node names are planned names.
 
-**S. Slider steering.**
-
-```mermaid
-flowchart LR
-  subgraph client
-    tc[TouchControls.vue]
-    chip[StatusChip.vue]
-    mode[(steerMode)]
-    slider[grabSlider / moveSlider / releaseSlider]
-    angle[(wheelAngle)]
-    pad[getTouchPad]
-  end
-  chip -.-> mode
-  tc -.-> mode
-  tc -.-> slider
-  slider -.-> angle
-  pad -.-> angle
-  class mode,slider new
-  class tc,chip,angle changed
-  class pad existing
-  classDef new fill:#d9f2d9,stroke:#2e7d32,stroke-width:2px,color:#1b3d1d
-  classDef changed fill:#fff4d6,stroke:#b7791f,stroke-width:2px,color:#4a3510
-  classDef existing fill:#eeeeee,stroke:#9e9e9e,color:#616161
-```
+**W. Tangent wheel drag.** The diagram is in `notes/plans/tangent-wheel-drag.md`.
 
 **C. Slide-aware centering.**
 
@@ -73,7 +60,7 @@ flowchart LR
   classDef existing fill:#eeeeee,stroke:#9e9e9e,color:#616161
 ```
 
-`target -.-> drive`: `centerTarget` reads `MAX_STEERING`, which `handleSteeringAndDrive.ts` must export (today it is a local `maxSteering`).
+`target -.-> drive`: `centerTarget` reads `MAX_STEERING`, which `handleSteeringAndDrive.ts` must export (today it is a local `maxSteering`). `tc -.-> target`: the gap arc and the haptic tap read the target.
 
 **T. Banked roads.**
 
@@ -106,42 +93,22 @@ No solid edge in any diagram: nothing new crosses the network.
 
 ---
 
-## S. Slider steering
+## W. Tangent wheel drag
 
-### S1. What it does
+Full plan: `notes/plans/tangent-wheel-drag.md` (approved). It is your attachment from the review. I changed only its links to the shelved slider and to the C5 cue.
 
-- A toggle turns slider mode on or off. Off by default. Saved in `localStorage`, like the gear (`touchGear`).
-- With slider mode on, a pointer that **goes down** in the bottom half of the screen, and not on the wheel, a pedal, or the gear pill, steers.
-- Steer comes from the pointer's x only. Screen center = straight. The span ends (S3) = full lock.
-- The drag keeps steering after it leaves the bottom half. Pointer capture does this. Only the down point must be in the bottom half.
-- The wheel stays. It is still an input. It also shows the steer angle from the slider, because both write the same `wheelAngle`.
-- On release, the wheel centers as it does today (or as change C says).
+Why it fits your review: in the heat of the moment you grab the wheel and pull in the direction you want, then run out of circle. Tangent drag makes that pull a straight slider, set by where you grab. Angular drag stays as the default, so the circling interaction is still there.
 
-### S2. Mechanics (not slots)
+## Shelved: bottom-half slider
 
-- A new full-width `steer-zone` element covers the bottom half, **under** the wheel, pedals, and gear in z-order. So those controls get their own pointers first. `touch-root` keeps `pointer-events: none`. The zone sets `auto` only while slider mode is on.
-- The wheel's hit element is a square, but `onWheelDown` accepts only the circle. Today a tap in the square's corners does nothing. With slider mode on, the scaffold forwards a corner tap to the slider. (A DOM event does not fall through by itself.)
-- **One steering owner at a time.** The first pointer that grabs (wheel or slider) owns steering until it lifts. A second steering pointer does nothing. The existing `held` flag becomes the owner record: `"none" | "wheel" | "slider"`.
-- `releaseAll()` (touch hidden) also releases the slider.
+Plan revision 1 had a slider: a drag in the bottom half of the screen steered by its x position. It is on hold. Your reasons, from the review:
 
-### S3. Decisions for you to review
+- **Space.** The free bottom-half area exists only in portrait, not in landscape.
+- **Thumb clash.** In landscape, steering to full right lock puts the steering thumb over the gas thumb, at the far right.
+- **Steer snap.** An absolute slider jumps steer to the finger at touch-down. Not severe, but it adds to the other two.
+- **A better idea exists.** Tangent drag (W) keeps the "pull in a straight line" feel on the wheel itself, with no new screen area.
 
-| # | Decision | Recommendation | Why |
-| --- | --- | --- | --- |
-| S3a | Absolute or relative | **Absolute.** A tap jumps steer to the finger x. | Your description: center = straight, edges = lock. Also needed for catching slides (see C5): put the finger on the cue. |
-| S3b | Toggle location | A small switch in the `StatusChip` pill. | The pill is already the settings place (reload, fullscreen). The gear pill is for driving. |
-
-Absolute has one cost: a tap far from the current steer makes a step in steer. The wheel jumps the same. Watch for it.
-
-### S4. Your slots
-
-| Slot | File (planned) | Decision | Where to look |
-| --- | --- | --- | --- |
-| Slider span | `vue-client/src/input/touch.ts` | Where full lock is: the screen edges, or the inner edges of the wheel and the pedals. | In landscape on a phone, the wheel and pedals cover the edges. Drag from the middle to each side. Can your thumb reach lock? |
-| Slider center dead zone | `vue-client/src/input/touch.ts` | Width (px or fraction) at the center that gives 0. | Hold a thumb still at center at speed. Does the car weave? |
-| Slider curve | `vue-client/src/input/touch.ts` | x (−1…1) to steer (−1…1). Same idea as `applyCurve`, but for the slider. | Small corrections at speed vs. reaching lock. |
-
-Prediction to check: with 1:1 linear mapping, 1 px of thumb on a 800 px phone is 1/400 of lock. Lock is 0.45 rad (`maxSteering`) at the road wheels. At 30 m/s, what turn radius does 1 px give? Is the slider too sensitive at speed?
+If it comes back, revision 1 of this file (commit `3721715`) has the full design: owner record, span, dead zone, curve.
 
 ---
 
@@ -189,28 +156,39 @@ So the target is a blend: straight at low speed, 0 front slip at speed. How you 
 
 | Slot | File (planned) | Decision | Where to look |
 | --- | --- | --- | --- |
-| Target blend | `vue-client/src/input/touch.ts`, `centerTarget` | How the target goes from straight (stopped, reverse) to 0 front slip (moving). Speed where it changes. | Reverse at walking speed and release. Then slide at speed and release. |
+| Target blend | `vue-client/src/input/touch.ts`, `centerTarget` | How the target goes from straight (stopped, reverse) to 0 front slip (moving). Speed where it changes. | Reverse at walking speed (about 3 mph) and release. Then slide at speed and release. |
 | Align gain | same | Fraction of the 0-front-slip angle to use, 0…1. 1 = what reality does (C1). | You asked for "slightly". Try 1 first, then lower it, and compare how a slide ends. |
 | Rate in a slide | same, `centerStep` | Keep the rolling-speed rate, or add a faster rate when the gap to target is large. | Real wheels snap to countersteer fast in a slide. Is the current 960°/s cap fast enough? |
 
 Prediction to check, before you run it: with align gain 1 and **no slide**, you release the wheel mid-corner. The target is then about the current steer, minus a small front slip. Does the wheel still return to straight? How fast, compared with today? (Hint: what happens to the car's path as the wheel moves a little toward the target?)
 
-### C5. The cue: which way the wheel "wants" to go
+### C5. The cue: gap arc and haptic tap
 
-Brainstorm. Each item has a cost and a reason.
+Your choice from the review: **gap arc** (2) and **haptic tap** (6). The arc is easier to read from the edge of your vision than a second notch. It also shows in normal turning, because the wheels "want" to go back toward straight while you hold a turn.
 
-| # | Cue | Cost | For | Against |
-| --- | --- | --- | --- | --- |
-| 1 | **Ghost notch** on the wheel rim at the target angle. The wheel already has an orange top notch. The ghost is a hollow orange notch. "Match the notches." | Small. One SVG element, one rotate in `draw()`. | Direct. Same units as the thing you grab. | On the wheel only. Your eyes are on the road. |
-| 2 | **Gap arc** on the rim, from the real notch to the ghost. Color by gap size. | Small. | Shows how far, and which way, at a glance. | More ink on a see-through control. |
-| 3 | **Slider ghost tick** at the bottom of the screen at the target x. | Small. Slider mode only. | Tells you exactly where to put the thumb for an absolute grab (S3a). | Only useful in slider mode. |
-| 4 | **3D arrow** at the car's nose, along the front axle's path. | Medium. A Three.js mesh in the chase view. | Your eyes are already on the car. Shows the physics, not the control. | Can clutter. Needs depth and contrast care. |
-| 5 | **Rim tint by slide size.** The wheel rim warms as the front slip grows. | Small. | Says "you are sliding" before you look for the notch. | Says how much, not where. |
-| 6 | **Haptic** tick when the thumb passes the target. `navigator.vibrate`. | Small. | No look needed. | Android only. iOS Safari has no `vibrate`. |
+The six options from revision 1, for reference: ghost notch, gap arc, slider tick, 3D arrow, rim tint, haptic.
 
-Recommendation: **1 + 3, shown only when the gap passes a threshold.** Both show the target in the units you grab with. They hide in normal driving, so the screen stays clean. Add 5 if the notch alone is hard to see in a fast slide. Keep 4 as a later idea.
+**Gap arc**
 
-The cue threshold is a slot (`vue-client/src/components/TouchControls.vue`). Where to look: drive normal corners, then slide. The cue should stay off in the first and come on in the second.
+- An arc on the wheel rim, from the real notch (the current angle) to the target angle (`centerTarget`).
+- Shows whenever the gap is larger than a small threshold, held or not. So it also shows in a normal corner.
+- Drawn in `TouchControls.vue`, in the wheel SVG. It does not rotate with the wheel group: its two ends are absolute angles.
+- Problem: the wheel turns ±450°, so the gap can be up to 900°. An arc cannot show more than one turn. Plan: draw at most 330° of arc, and put a small arrowhead on the far end when the gap is larger. "Keep going."
+- The tangent mode target mark (`tangent-wheel-drag.md`, W6) is a different cue, with its own toggle. Both read the same `centerTarget`.
+
+**Haptic tap**
+
+- One short `navigator.vibrate` pulse when the held wheel **reaches** the countersteer target: the gap changes sign while held.
+- Only for countersteer: the tap fires only while the car slides (front slip larger than a threshold). Without that rule, every normal corner would tap when you pass straight.
+- At most one tap per grab, until the gap grows past the threshold again. So a thumb that rests on the target does not buzz.
+- Android only. iOS Safari has no `navigator.vibrate`. There the arc is the only cue.
+
+**Your slots (C5)**
+
+| Slot | File (planned) | Decision | Where to look |
+| --- | --- | --- | --- |
+| Arc look | `vue-client/src/components/TouchControls.vue` (SVG + scoped CSS) | Width, color, color by gap size, show threshold. | A normal corner and a slide. Can you read it without looking straight at the wheel? |
+| Tap | `vue-client/src/input/touch.ts` | Pulse length (ms), and the front slip that counts as "sliding". | Slide, let go, catch. Does the tap come at the moment you would grab? Does a normal corner stay quiet? |
 
 ### C6. Sources and confidence
 
@@ -240,8 +218,10 @@ type BankedPathPiece = PieceBase & {
   segments: PathSegment[]
   /** Full bank on arcs, radians. Straights are flat. The outer edge of each arc is the high edge. */
   bankAngle: number
-  /** Length (m) over which the bank eases between segments. */
+  /** Length (m) of road over which the bank changes, at each segment boundary. */
   easeLength: number
+  /** Height (m) of a wall on the high edge of arcs. 0 = none. Straights have no wall. */
+  barrierHeight: number
   /** Last point joins the first. For an oval. */
   closed: boolean
   /** Samples per metre along the center line. */
@@ -249,36 +229,55 @@ type BankedPathPiece = PieceBase & {
 }
 ```
 
-- The existing turn becomes a path with one `arc` (right, 180°). It keeps its look. Its vertices change a little (ease by length, not by angle), so `worldVersion` changes. That is expected.
-- The **low edge stays on the ground** and the high edge lifts. On a left arc the left edge is low, on a right arc the right edge is low. Where the bank changes sides, it eases through 0, so the road is flat at the crossover and has no step.
-- Why not pivot on the center line: half the road would go below `y = 0`, into the ground box.
+- The **low edge stays on the ground** and the high edge lifts. On a left arc the left edge is low, on a right arc the right edge is low. Why not pivot on the center line: half the road would go below `y = 0`, into the ground box.
 - `bankedPathGeometry` replaces `bankedTurnGeometry`. Same output: `{ vertices, indices }`, used for the `trimesh` collider and, through it, the mesh.
 
-### T2. The two layouts
+### T2. Bank transitions (longer)
 
-- **Oval.** `closed: true`. Straight, 180° left, straight, 180° left. You drive onto it from the infield: the inner edge is on the ground.
-- **S curve.** Arc left, then arc right, with a short straight (or none) between them. Open ends ease to flat, like the current turn.
+You found today's transition too short. Today it is 30° of arc (`easeArc = π/6`). On the current turn's center line (radius about 18 m), that is about **9.4 m** of road, all inside the arc.
 
-### T3. Problem: the high edge is a cliff
+New rule, one for every boundary:
 
-A road surface is a thin sheet. Edge height = road width × tan(bank). At 30° and a 7 m road, the outer edge is about 4 m up. Today's 15° turn already has a 1.9 m edge.
+- Each segment has a target bank: straight = 0, arc = full bank, with its sign from the turn side.
+- The road's bank at a point is the target bank, smoothed over `easeLength` of road, centered on each boundary. Half the change is on each side of the boundary.
+- An S curve's flip (full one way to full the other) is one boundary with twice the change. It goes through 0 at the boundary, so the road is flat there and has no step.
+- Short segments: two smoothing windows can overlap. The smoothing handles this by itself: the bank then never reaches full. No special case. A headless test reports the largest bank each segment reaches, so you can see it.
+- Open ends are flat. The builder adds a flat lead-in of `easeLength / 2` at each open end, so an arc keeps its full-bank length.
 
-- Off the outside: the car falls about 4 m to the ground.
-- From the outside at ground level: the car drives **under** the sheet.
+The old 180° turn **stays**. It becomes a path with one arc and gets the new, longer transition. Its vertices change, so `worldVersion` changes. That is expected.
 
-Plan: the builder also makes a **skirt**, a vertical face from the high edge down to the ground. It closes the shape. Then a car from outside hits a wall instead of going under. Not a slot: it is the same in every choice.
+Placeholder: `easeLength` about 2× today (about 19 m). It is a slot (T5).
 
-An outer **barrier** (a wall on top of the high edge, like a race track wall) is a real choice. See the slots.
+### T3. Getting onto the oval
 
-### T4. Your slots
+Your question: how do you reach the infield? Answer: **across a straight.**
+
+- Straights have no bank, so the whole width of a straight is at ground level. You drive on or off from either side.
+- Only the arcs lift their outer edge. So the raised parts and the barrier are only on the arcs.
+- Rule for the oval: each straight must be longer than `easeLength`, so its middle is fully flat. The scaffold's headless test checks the bank at the middle of each straight is 0.
+- No ramp is needed. If you later want banked straights (some real ovals have a few degrees), then a ramp or a gap becomes necessary. Not in this plan.
+
+### T4. The high edge, skirt, and barrier
+
+A road surface is a thin sheet. Edge height = road width × tan(bank). At 30° and a 7 m road, the outer edge is about 4 m up.
+
+- **Skirt** (always): a vertical face from the high edge down to the ground. A car from outside then hits a wall instead of driving under the road.
+- **Barrier** (you were fine either way, so I chose): a wall on the high edge of the arcs only. Placeholder height 1 m, about 2.5× the chassis height. `barrierHeight: 0` removes it. It ends where the bank is gone, so the straights stay open (T3).
+
+### T5. Your slots
 
 | Slot | File (planned) | Decision | Where to look |
 | --- | --- | --- | --- |
-| Oval size and bank | `shared/src/terrain/layout.ts` | Arc radius, straight length, bank angle, road width. One block. | The no-friction speed of a banked curve: `v² = g · r · tan(θ)`. Pick the speed you want to hold, then the radius or the angle. Top speed is 42 m/s. |
+| Oval size and bank | `shared/src/terrain/layout.ts` | Arc radius, straight length, bank angle, road width. One block. | The no-friction speed of a banked curve: `v = √(g · r · tan θ)` in m/s, × 2.237 for mph. Pick the speed you want to hold, then the radius or the angle. Top speed is 94 mph (42 m/s). |
 | S curve size and bank | same | Radius and angle of each arc, the straight between them, bank angle. | Drive it at the speed of the oval. Does the bank change sides in time? |
-| Bank ease length | same | How long the bank takes to change. | Too short: a jolt at the crossover. Too long: the arc is not banked when you need it. |
-| Outer barrier | `shared/src/terrain/layout.ts` (height), builder in `pieces.ts` | Height of a wall on the high edge. 0 = none. | Go too fast on the oval. Fly off, or hit a wall? |
-| Placement | same | Where each piece sits. | The arena is ±500 m. Today's pieces sit near z = 30…140 and x = 30. |
+| Ease length | same | How many metres the bank takes to change. | Too short: a jolt (today's 9.4 m). Too long: the arc is not banked when you need it. |
+
+Placement is **not a slot** (your call: anywhere, if nothing overlaps). The scaffold puts:
+
+- the oval behind the spawn, in x −200…200 m, z −480…−40 m;
+- the S curve to the left of the bump row, in x 60…400 m, z 60…480 m.
+
+Today's pieces sit in x −40…45 m, z 15…165 m. The spawn ramp sits in x −3…3 m, z −16…6 m. A headless test checks that no two pieces' bounding boxes overlap, and that each piece stays inside the ±500 m walls. The scaffold keeps each piece inside its region at any size you pick in the slots, or the test fails and names the piece.
 
 Prediction to check: stop the car on a 30° bank, off the pedals. Does it slide down the bank? What in `shared/src/terrain/surfaces.ts` and `wheels.ts` decides that? Then the same at 15°.
 
@@ -287,13 +286,19 @@ Prediction to check: stop the car on a 30° bank, off the pedals. Does it slide 
 ## Test plan
 
 - `npm run build` passes (CI runs it too).
-- Headless test: `frontAxleSlip` sign and size for a car that slides left, right, and goes straight.
-- Headless test: `bankedPathGeometry` closes the oval with no gap at the seam, and the bank is 0 at the S crossover.
-- Headless screenshots: slider zone, ghost notch, slider ghost tick, the oval, and the S curve.
-- Not possible in the cloud session: feel on a real phone, and server-client agreement on the new pieces with a live server. You check those.
+- W: the tests in `notes/plans/tangent-wheel-drag.md`.
+- C: headless test of `frontAxleSlip` sign and size for a car that slides left, right, and goes straight.
+- C: headless test of the tap rule: a gap sign change while sliding taps once; a normal corner does not tap.
+- T: `bankedPathGeometry` closes the oval with no gap at the seam. The bank is 0 at the S crossover and at the middle of each oval straight. Each segment's largest bank is reported.
+- T: no piece overlaps another, and all stay inside the walls.
+- Headless screenshots: gap arc (normal corner and slide, and the over-330° arrowhead), the oval, the S curve, and the old turn.
+- Not possible in the cloud session: feel on a real phone, the haptic tap on a real Android device, and server-client agreement on the new pieces with a live server. You check those.
 
 ## Open questions
 
-- Slide-aware centering for keys and gamepad later? Keys would need the target in `shared` (server and client both run key steering). A gamepad has a physical spring, so only force feedback could do it.
-- Should slider mode hide the wheel's hit area (keep it only as a display)? The plan keeps it as an input, as you asked.
-- Keep the old 180° banked turn, or remove it now that the oval exists?
+None from revision 1 remain open. Answered in your review:
+
+- Keys: not now. Maybe later.
+- Slider hit area: moot, the slider is shelved.
+- Old banked turn: kept, with the longer transition.
+- Barrier: your call was "either way". I chose one on the arcs (T4). Say so if you want it off.
