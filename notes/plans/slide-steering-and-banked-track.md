@@ -1,4 +1,4 @@
-# Plan: tangent wheel drag, slide-aware centering, banked oval and S curve
+# Plan: slide-aware centering, wheel input, banked oval and S curve
 
 Status: **approved. Scaffold pushed in this PR.** Your slots are marked `YOUR CHOICE` in the code.
 
@@ -89,7 +89,7 @@ flowchart LR
 
 No solid edge in any diagram: nothing new crosses the network.
 
-`buildTerrainMeshes` needs no change. It already builds a mesh from any `TriMesh` collider.
+`buildTerrainMeshes` already builds a mesh from any `TriMesh` collider. It changed only for drawing: walls are double-sided, flat road has a depth offset, and terrain draws before the ground.
 
 ---
 

@@ -37,7 +37,7 @@ import { queueControls, stateLagSeconds } from "@/network"
 import { authoritativePlayers, myId, mySpawnIndex, worldMismatch } from "@/store/network"
 import reconcile from "@/physics/reconcile"
 import RenderSmoothing from "@/physics/renderSmoothing"
-import { recordFrame, setPerfExtra } from "@/debug/perfHud"
+import { perfEnabled, recordFrame, setPerfExtra } from "@/debug/perfHud"
 import { initQuality, qualitySetting } from "@/three/quality"
 import { watch } from "vue"
 
@@ -204,7 +204,7 @@ async function init() {
     const renderStart = performance.now()
     renderer.render(scene, camera)
     const end = performance.now()
-    recordFrame({
+    if (perfEnabled) recordFrame({
       interval,
       physics: physicsMs,
       render: end - renderStart,

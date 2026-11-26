@@ -18,7 +18,7 @@ const still = { angle: 0, rearAngle: 0, forwardSpeed: 0, lateralSpeed: 0 }
 const step = 1 / 60
 const close = (a: number, b: number, eps = 1e-6) => Math.abs(a - b) < eps
 
-/** Drag the wheel clockwise at `degPerStep` for `steps` physics steps (angular mode), then release. */
+/** Drag the wheel clockwise at `degPerStep` for `steps` physics steps, then release. */
 function spinAndRelease(degPerStep: number, steps: number) {
   resetWheel()
   const r = 80
@@ -63,7 +63,19 @@ test("flick on: a slow release does not coast", () => {
   wheelFlick.set("off")
 })
 
-test("lock: a new lock keeps the steer fraction", () => {
+test("flick on: a quick tap catches a coasting wheel, even between two physics steps", () => {
+  wheelFlick.set("on")
+  spinAndRelease(6, 10)
+  for (let i = 0; i < 3; i++) updateWheel(step, 0, still)
+  const caught = getWheelAngle()
+  grabWheel(0, -80, 80) // tap: grab and release with no step between
+  releaseWheel()
+  for (let i = 0; i < 60; i++) updateWheel(step, 0, still)
+  assert.ok(close(getWheelAngle(), caught), `${getWheelAngle()} vs ${caught}`)
+  wheelFlick.set("off")
+})
+
+test("lock: a new lock keeps the steer fraction", async () => {
   resetWheel()
   wheelLockSetting.set(900)
   const r = 80
@@ -72,12 +84,11 @@ test("lock: a new lock keeps the steer fraction", () => {
   releaseWheel()
   const fraction = getWheelAngle() / getHalfLock()
   wheelLockSetting.set(360)
-  return new Promise<void>((done) =>
-    setTimeout(() => {
-      assert.ok(close(getHalfLock(), Math.PI), `half lock ${getHalfLock()}`)
-      assert.ok(close(getWheelAngle() / getHalfLock(), fraction))
-      wheelLockSetting.set(900)
-      done()
-    }),
-  )
+  await new Promise((resolve) => setTimeout(resolve)) // the watcher runs after this tick
+  try {
+    assert.ok(close(getHalfLock(), Math.PI), `half lock ${getHalfLock()}`)
+    assert.ok(close(getWheelAngle() / getHalfLock(), fraction))
+  } finally {
+    wheelLockSetting.set(900)
+  }
 })

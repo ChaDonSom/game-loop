@@ -52,30 +52,24 @@ export const PEDAL_CURVE_EXP = 2
 export const TARGET_BLEND_LOW = 1
 /** Forward speed (m/s) above which the target is the full 0-front-slip angle. 4 m/s ≈ 9 mph. */
 export const TARGET_BLEND_HIGH = 4
-/**
- * YOUR CHOICE: fraction of the 0-front-slip angle the wheel goes to, 0…1. 1 = what reality does (plan C1).
- * Try 1 first, then lower it, and compare how a slide ends.
- */
+// YOUR CHOICE: fraction of the 0-front-slip angle the wheel goes to, 0…1. 1 = what reality does (plan C1).
+// Try 1 first, then lower it, and compare how a slide ends.
 export const ALIGN_GAIN = 1
 
-/** YOUR CHOICE: length of the haptic tap, ms. Slide, let go, catch: does the tap come when you would grab? */
+// YOUR CHOICE: length of the haptic tap, ms. Slide, let go, catch: does the tap come when you would grab?
 export const TAP_MS = 15
-/**
- * YOUR CHOICE: rear slip angle (radians) that counts as "sliding" for the tap. The rear wheels do not steer, so their
- * slip stays small in a normal corner and grows in a slide. 0.15 rad ≈ 9°. Check that a normal corner stays quiet.
- */
+// YOUR CHOICE: rear slip angle (radians) that counts as "sliding" for the tap. The rear wheels do not steer, so their
+// slip stays small in a normal corner and grows in a slide. 0.15 rad ≈ 9°. Check that a normal corner stays quiet.
 export const SLIDE_REAR_SLIP = 0.15
 /** After a tap, the gap must grow past this (wheel radians) before the next tap. 30° of wheel. */
 export const TAP_REARM_GAP = 30 * DEG
 
 // Flick with momentum (`notes/research/fast-wheel-input.md`, option 1).
 
-/**
- * YOUR CHOICE: how fast a flicked wheel slows down, per second (exponential). 3 = it loses 95% of its spin in 1 s.
- * Lower = it coasts further. Flick toward lock and let go: does it stop where you expect?
- */
+// YOUR CHOICE: how fast a flicked wheel slows down, per second (exponential). 3 = it loses 95% of its spin in 1 s.
+// Lower = it coasts further. Flick toward lock and let go: does it stop where you expect?
 export const FLICK_FRICTION = 3
-/** YOUR CHOICE: release spin (wheel rad/s) below which there is no flick. 2 rad/s ≈ 115°/s. Slow releases stay put. */
+// YOUR CHOICE: release spin (wheel rad/s) below which there is no flick. 2 rad/s ≈ 115°/s. Slow releases stay put.
 export const FLICK_MIN_SPIN = 2
 /** Spin below this (rad/s) stops. */
 const FLICK_STOP_SPIN = 0.2
@@ -92,21 +86,17 @@ function pedalCurve(travel: number) {
   return Math.pow(travel, PEDAL_CURVE_EXP)
 }
 
-/**
- * YOUR CHOICE: one centering step, toward `target` (wheel radians). Never crosses the target; returns `angle`
- * unchanged when `rolling` is 0. Today's rate rule. Real wheels snap to countersteer fast in a slide: is the
- * 960°/s cap fast enough? A faster rate for a large gap would go here.
- */
+// YOUR CHOICE: one centering step, toward `target` (wheel radians). Never crosses the target; returns `angle`
+// unchanged when `rolling` is 0. Today's rate rule. Real wheels snap to countersteer fast in a slide: is the
+// 960°/s cap fast enough? A faster rate for a large gap would go here.
 function centerStep(angle: number, target: number, rolling: number, dt: number) {
   const effective = rolling / (1 + rolling / CENTER_SAT_SPEED)
   const gap = target - angle
   return angle + Math.sign(gap) * Math.min(Math.abs(gap), CENTER_RATE * effective * dt)
 }
 
-/**
- * YOUR CHOICE: how the target goes from straight (stopped, reverse) to the 0-front-slip angle (moving), 0…1.
- * Reverse at walking speed (about 3 mph) and release. Then slide at speed and release.
- */
+// YOUR CHOICE: how the target goes from straight (stopped, reverse) to the 0-front-slip angle (moving), 0…1.
+// Reverse at walking speed (about 3 mph) and release. Then slide at speed and release.
 function targetBlend(forwardSpeed: number) {
   return clampUnit((forwardSpeed - TARGET_BLEND_LOW) / (TARGET_BLEND_HIGH - TARGET_BLEND_LOW))
 }
@@ -145,6 +135,8 @@ let lastFingerAngle: number | null = null
 /** Grab is relative: the wheel does not jump to the finger. `dx`, `dy` are from the wheel center, screen px. */
 export function grabWheel(dx: number, dy: number, radius: number) {
   held = true
+  // A grab catches a flicked wheel, even a tap between two physics steps.
+  spin = 0
   lastFingerAngle = Math.hypot(dx, dy) < radius * DEAD_RADIUS_FRAC ? null : Math.atan2(dy, dx)
 }
 

@@ -32,9 +32,10 @@ const CONTROL_OPACITY = 0.75
 const GEAR_IDLE_OPACITY = 0.45
 const LONG_PRESS_MS = 600
 const HIT_FRAC = 1.15
-/** YOUR CHOICE: the gap arc shows when the gap (wheel degrees) is larger than this. A normal corner vs a slide. */
+// YOUR CHOICE: the gap arc shows when the gap (wheel degrees) is larger than this. A normal corner vs a slide.
 const ARC_SHOW_GAP_DEG = 20
-/** YOUR CHOICE: above this gap (wheel degrees) the arc gets the `big` class (see `.gap-arc.big` in the CSS). */
+// YOUR CHOICE: above this gap (wheel degrees) the arc gets the `big` class (see `.gap-arc.big` in the CSS).
+// YOUR CHOICE: the arc look itself is `.gap-arc` and `.gap-arc.big` in the <style> block below.
 const ARC_BIG_GAP_DEG = 180
 /** The arc never draws more than this (wheel degrees). A larger gap gets an arrowhead: "keep going". */
 const ARC_MAX_DEG = 330
@@ -89,6 +90,9 @@ const layout = computed(() => {
       right: inset("right", EDGE_MARGIN),
       bottom: inset("bottom", EDGE_MARGIN + pedalH + 8),
     },
+    // Bottom half, left of the pedal and gear column (with a margin), so a touch that just misses a pedal never
+    // reaches the wheel.
+    steerZone: { right: inset("right", EDGE_MARGIN * 2 + pedalW * 2 + gap) },
   }
 })
 
@@ -106,13 +110,17 @@ let wheelCenter = { x: 0, y: 0, radius: 1 }
 let wheelCaptureEl: HTMLElement | null = null
 
 /**
- * Any pointer-down on the wheel, or in the bottom half of the screen outside the other controls (the steer zone),
- * grabs the wheel, measured from the wheel center. A new touch takes over from the current one, so a fast second
- * grab is never dropped (the old touch may not have sent its pointerup yet).
+ * Any pointer-down on the wheel, or in the bottom half of the screen left of the pedals (the steer zone), grabs the
+ * wheel, measured from the wheel center. A new touch on the wheel takes over from the current one, so a fast second
+ * grab is never dropped (the old touch may not have sent its pointerup yet). A zone touch never takes over.
  */
 function onWheelDown(e: PointerEvent) {
   if (!wheelEl.value) return
-  if (wheelPointer !== null) endWheelPointer()
+  if (wheelPointer !== null) {
+    // Only a touch on the wheel itself takes over. A zone touch must not steal steering from the thumb on it.
+    if (e.currentTarget !== wheelEl.value) return
+    endWheelPointer()
+  }
   const rect = wheelEl.value.getBoundingClientRect()
   const hitR = rect.width / 2
   const center = { x: rect.left + hitR, y: rect.top + hitR, radius: hitR / HIT_FRAC }
@@ -334,6 +342,7 @@ const brakeFill = pedalFills.brake
     <!-- Bottom half: a missed grab still grabs the wheel. Under the other controls, so they keep their own touches. -->
     <div
       class="steer-zone"
+      :style="layout.steerZone"
       @pointerdown="onWheelDown"
       @pointermove="onWheelMove"
       @pointerup="onWheelUp"
@@ -446,7 +455,6 @@ const brakeFill = pedalFills.brake
 .steer-zone {
   position: absolute;
   left: 0;
-  right: 0;
   bottom: 0;
   height: 50%;
   pointer-events: auto;

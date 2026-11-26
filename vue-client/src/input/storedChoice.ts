@@ -29,9 +29,9 @@ export function storedChoice<T extends string>(key: string, choices: readonly T[
   return { value, set }
 }
 
-/** A number setting saved in `localStorage`, clamped to [min, max]. Same storage rules as `storedChoice`. */
+/** A whole-number setting saved in `localStorage`, clamped to [min, max]. Same storage rules as `storedChoice`. */
 export function storedNumber(key: string, fallback: number, min: number, max: number) {
-  const clampValue = (n: number) => Math.min(max, Math.max(min, n))
+  const clampValue = (n: number) => Math.min(max, Math.max(min, Math.round(n)))
   const value = ref(load())
 
   function load(): number {

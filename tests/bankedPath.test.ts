@@ -125,8 +125,9 @@ test("no two pieces overlap, none touches the spawn ramp, all inside the walls",
     for (let j = i + 1; j < boxes.length; j++) {
       const a = boxes[i]!
       const b = boxes[j]!
-      // A piece named after another (the oval's ramp) is attached to it on purpose.
-      if (a.id.startsWith(b.id) || b.id.startsWith(a.id)) continue
+      // The oval's entry ramp touches the oval on purpose.
+      const pair = [a.id, b.id].sort().join(" + ")
+      if (pair === "banked-oval + banked-oval-ramp") continue
       const overlap = a.minX < b.maxX && b.minX < a.maxX && a.minZ < b.maxZ && b.minZ < a.maxZ
       assert.ok(!overlap, `${a.id} overlaps ${b.id}`)
     }

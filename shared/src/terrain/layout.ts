@@ -43,7 +43,7 @@ const DEG = Math.PI / 180
 // YOUR CHOICE: metres of road over which the bank changes (arc to straight, or one bank to the other).
 // Today's turn had about 9.4 m (30° of arc). Too short: a jolt. Too long: the arc is not banked when you need it.
 const easeLength = 19
-/** Height of the wall on the raised edge, m. Fades with the bank, so straights stay open. 0 = no wall. */
+/** Height of the wall on the raised edge, m. Scales with the bank: 0 on flat road, in full at the full bank. 0 = none. */
 const barrierHeight = 1
 /** Centre-line samples per metre. */
 const pathResolution = 1
@@ -93,7 +93,7 @@ const ovalRampLength = 15
 const ovalRampWidth = 8
 
 // Placement (not a slot): behind the spawn ramp, centred on x = 0, z = -260. Region x -200…200, z -480…-40.
-// Turned 90°, so its straights run along X and the side facing the spawn is a flat straight: the way in shows.
+// Turned 90°, so its straights run along X and the straight with the entry ramp faces the spawn: the way in shows.
 const ovalCenter = { x: 0, z: -260 }
 const ovalTurn = Math.PI / 2
 // In the oval's own frame the path starts at (-radius, -straight/2) from its centre, heading +Z, turning left, so

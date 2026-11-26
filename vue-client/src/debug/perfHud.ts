@@ -14,7 +14,9 @@
  * Example: `?perf&noshadow&dpr=1`.
  */
 const params = typeof location !== "undefined" ? new URLSearchParams(location.search) : new URLSearchParams()
-const enabled = params.has("perf")
+/** `?perf` in the URL. Callers can skip building a frame sample when it is off. */
+export const perfEnabled = params.has("perf")
+const enabled = perfEnabled
 const dpr = Number(params.get("dpr"))
 
 export const perfOptions = {

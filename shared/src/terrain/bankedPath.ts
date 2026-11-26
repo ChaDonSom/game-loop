@@ -194,7 +194,11 @@ export function bankedPathGeometry(piece: BankedPathPiece) {
       const t0 = wallVertex(i, side, 1)
       const b1 = wallVertex(j, side, 0)
       const t1 = wallVertex(j, side, 1)
-      indices.push(b0, b1, t0, t0, b1, t1)
+      // Both walls face the road, so their normals agree if one-sided shading or trimesh flags are ever used.
+      // Left wall (+X side at heading 0): (b0, b1, t0) gives normal forward × up = −X, toward the road.
+      // Right wall: the mirror winding.
+      if (side === 0) indices.push(b0, b1, t0, t0, b1, t1)
+      else indices.push(b0, t0, b1, t0, t1, b1)
     }
   }
 

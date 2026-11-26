@@ -35,7 +35,8 @@ export type PathSegment =
 /**
  * A road along a centre line made of straights and arcs. Origin: the start of the centre line, facing +Z.
  * +X is the driver's left at the start. Arcs bank toward their centre: the inner edge stays on the ground and the
- * outer edge lifts. Straights are flat. The bank changes over `easeLength` at each segment boundary.
+ * outer edge lifts. Straights are flat unless they set their own `bank`. The bank changes over `easeLength` at each
+ * segment boundary.
  */
 export type BankedPathPiece = PieceBase & {
   kind: "bankedPath"
