@@ -5,6 +5,7 @@
  */
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue"
 import keys from "@/input/keys"
+import { perfOptions } from "@/debug/perfHud"
 import WheelCue, { type TrackCue } from "@/components/WheelCue.vue"
 import {
   EDGE_MARGIN,
@@ -275,7 +276,7 @@ function drawGapArc(angle: number, target: number) {
   const headTurn = gapHeadTurn.value
   if (!arc || !head || !arcTurn || !headTurn) return
   const gapDeg = (target - angle) * RAD_TO_DEG
-  const shown = Math.abs(gapDeg) > ARC_SHOW_GAP_DEG
+  const shown = !perfOptions.noArc && Math.abs(gapDeg) > ARC_SHOW_GAP_DEG
   if (shown !== arcState.shown) {
     arcState.shown = shown
     arc.style.display = shown ? "" : "none"
@@ -290,8 +291,9 @@ function drawGapArc(angle: number, target: number) {
   const angleDeg = angle * RAD_TO_DEG
   const spanDeg = Math.sign(gapDeg) * Math.min(Math.abs(gapDeg), ARC_MAX_DEG)
   // A circle's stroke starts at 3 o'clock and runs clockwise. Wheel angles start at 12 o'clock: −90°.
-  const rotate = `rotate(${(Math.min(angleDeg, angleDeg + spanDeg) - 90).toFixed(1)}deg)`
-  const dash = `${Math.abs(spanDeg).toFixed(1)} 360`
+  const rotate = `rotate(${(Math.min(angleDeg, angleDeg + spanDeg) - 90).toFixed(0)}deg)`
+  // Whole degrees: the layer repaints only when the dash changes, not on every tiny change of the target.
+  const dash = `${Math.abs(spanDeg).toFixed(0)} 360`
   if (rotate !== arcState.rotate) arcTurn.style.transform = arcState.rotate = rotate
   if (dash !== arcState.dash) arc.setAttribute("stroke-dasharray", (arcState.dash = dash))
   const big = Math.abs(gapDeg) > ARC_BIG_GAP_DEG
@@ -317,9 +319,9 @@ function buildCue(target: number): TrackCue | null {
     fade: held ? 1 : 0,
     origin: { x: wheelCenter.x + grab.p0.x, y: wheelCenter.y + grab.p0.y },
     dir: grab.t,
-    minus: grab.minus,
-    plus: grab.plus,
-    finger: Math.max(-grab.minus, Math.min(grab.plus, grab.s)),
+    minus: grab.reach,
+    plus: grab.reach,
+    finger: Math.max(-grab.reach, Math.min(grab.reach, grab.s)),
     target: wheelTargetMark.value.value === "on" ? tangentTrackPosition(grab, target) : null,
   }
 }

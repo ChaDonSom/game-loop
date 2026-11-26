@@ -39,7 +39,7 @@ function sweep(s: ReturnType<typeof slip>) {
   resetWheel()
   let taps = 0
   setTapSink(() => taps++)
-  grabTangent(0, -80, 80, { plus: TANGENT_REACH_PX, minus: TANGENT_REACH_PX }, "fixed")
+  grabTangent(0, -80, 80, TANGENT_REACH_PX, "fixed")
   for (let px = 0; px <= TANGENT_REACH_PX; px += 2) {
     moveTangent(px, -80)
     updateWheel(1 / 60, 10, s)

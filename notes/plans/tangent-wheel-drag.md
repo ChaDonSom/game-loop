@@ -124,14 +124,12 @@ A new grab starts from the current `wheelAngle`, not from 0. So from full left l
 
 ### W4b-2. Edge reach (experiment)
 
-- At grab, cast a ray from `p0` along `+t` and along `−t` to the viewport rect, minus `EDGE_MARGIN` and the safe area. That gives `Lplus` and `Lminus`.
-- Steer: `s ≥ 0` → `angle0 + (s / Lplus) · (halfLock − angle0)`. `s < 0` → `angle0 − (|s| / Lminus) · (halfLock + angle0)`.
-- So the screen edge is always exactly lock, from any grab point, from any start angle.
-- Costs:
-  - Gain changes with each grab. One grab can need 60 px to lock, the next 400 px.
-  - Gain changes inside one drag, at `p0`. Left and right have different rates, so there is a kink at the zero.
-  - A thumb cannot learn one "px per degree". It must read the cue (W4c) or the screen edge.
-- If edge reach is close but too varied: clamp `Lplus` and `Lminus` to `[L_min, TANGENT_REACH_MAX_PX]`. This is a middle choice. It is not in the scaffold unless you ask.
+Changed after the first runtime review. The first version mapped each half to lock on its own, so the two halves had different rates. The owner's rule:
+
+- At grab, cast a ray from `p0` along `+t` and along `−t` to the viewport rect, minus `EDGE_MARGIN` and the safe area.
+- Both halves get the length of the **shorter** ray: `reach = min(Lplus, Lminus)`. The shorter half ends at the screen edge.
+- One rate both ways: `angle0 + s · halfLock / reach`, clamped at lock. The same formula as fixed reach. Only `reach` differs.
+- So the gain still changes from grab to grab (a grab near the edge gets a short, quick track), but never within one drag.
 
 ## W5. Your slots
 

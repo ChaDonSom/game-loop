@@ -205,9 +205,8 @@ type TangentGrab = {
   /** Touch-down point, from the wheel center. The slider's zero. */
   p0: Vec2
   angle0: number
-  /** Reach (px) along +t and −t to lock. */
-  plus: number
-  minus: number
+  /** Reach (px) to lock, the same both ways, so both halves turn the wheel at the same rate. */
+  reach: number
   /** Signed px along the slider now. */
   s: number
 }
@@ -231,8 +230,8 @@ export function rayToRect(p: Vec2, d: Vec2, rect: { left: number; top: number; r
 }
 
 /**
- * Reach along ±t. Fixed: `TANGENT_REACH_PX` both ways. Edge: from the touch-down point (screen px) to the inset
- * screen rect, at least 1 px so the gain stays finite.
+ * Reach (px) of the slider, the same along +t and −t. Fixed: `TANGENT_REACH_PX`. Edge: as long as the shorter half
+ * can be, so that half ends at the inset screen edge. At least 1 px so the gain stays finite.
  */
 export function tangentReach(
   mode: TangentReachMode,
@@ -240,46 +239,25 @@ export function tangentReach(
   t: Vec2,
   rect: { left: number; top: number; right: number; bottom: number },
 ) {
-  if (mode === "fixed") return { plus: TANGENT_REACH_PX, minus: TANGENT_REACH_PX }
-  return {
-    plus: Math.max(1, rayToRect(p0Screen, t, rect)),
-    minus: Math.max(1, rayToRect(p0Screen, { x: -t.x, y: -t.y }, rect)),
-  }
+  if (mode === "fixed") return TANGENT_REACH_PX
+  const plus = rayToRect(p0Screen, t, rect)
+  const minus = rayToRect(p0Screen, { x: -t.x, y: -t.y }, rect)
+  return Math.max(1, Math.min(plus, minus))
 }
 
-/** Wheel angle for `s` px along the slider of `grab`. */
+/** Wheel angle for `s` px along the slider of `grab`. One rate both ways: lock is `reach` px from a centered wheel. */
 export function tangentAngle(grab: TangentGrab, s: number) {
-  if (grab.mode === "fixed") {
-    return Math.max(-halfLock, Math.min(halfLock, grab.angle0 + (s * halfLock) / grab.plus))
-  }
-  if (s >= 0) return grab.angle0 + Math.min(1, s / grab.plus) * (halfLock - grab.angle0)
-  return grab.angle0 - Math.min(1, -s / grab.minus) * (halfLock + grab.angle0)
+  return Math.max(-halfLock, Math.min(halfLock, grab.angle0 + (s * halfLock) / grab.reach))
 }
 
 /** Inverse of `tangentAngle`: where `angle` sits on the slider, clamped to the track ends. */
 export function tangentTrackPosition(grab: TangentGrab, angle: number) {
-  let s: number
-  if (grab.mode === "fixed") {
-    s = ((angle - grab.angle0) * grab.plus) / halfLock
-  } else if (angle >= grab.angle0) {
-    const room = halfLock - grab.angle0
-    s = room > 0 ? ((angle - grab.angle0) / room) * grab.plus : grab.plus
-  } else {
-    const room = halfLock + grab.angle0
-    s = room > 0 ? -((grab.angle0 - angle) / room) * grab.minus : -grab.minus
-  }
-  const clamped = s > grab.plus || s < -grab.minus
-  return { s: Math.max(-grab.minus, Math.min(grab.plus, s)), clamped }
+  const s = ((angle - grab.angle0) * grab.reach) / halfLock
+  return { s: Math.max(-grab.reach, Math.min(grab.reach, s)), clamped: Math.abs(s) > grab.reach }
 }
 
 /** Start a tangent drag. `dx`, `dy` from the wheel center, screen px. `reach` from `tangentReach` for `mode`. */
-export function grabTangent(
-  dx: number,
-  dy: number,
-  radius: number,
-  reach: { plus: number; minus: number },
-  mode: TangentReachMode,
-) {
+export function grabTangent(dx: number, dy: number, radius: number, reach: number, mode: TangentReachMode) {
   held = true
   lastFingerAngle = null
   tangent = {
@@ -287,8 +265,7 @@ export function grabTangent(
     t: tangentDirection(dx, dy, radius),
     p0: { x: dx, y: dy },
     angle0: wheelAngle,
-    plus: reach.plus,
-    minus: reach.minus,
+    reach,
     s: 0,
   }
 }

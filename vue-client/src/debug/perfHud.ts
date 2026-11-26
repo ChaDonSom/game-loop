@@ -1,11 +1,31 @@
 /**
  * Frame-time readout for profiling on a real device. Off unless the page URL has `?perf`.
- * Shows, twice a second: frames per second, and per-frame JS time split into physics and render (avg / worst).
- * The frame interval minus the JS total is time the browser spent elsewhere: GPU, compositing, or idle.
+ * Shows, twice a second: frames per second, the frame interval, per-frame JS time split into physics and render
+ * (avg / worst), draw calls and triangles, and seconds since load.
+ *
+ * The frame interval is the time between frames: at least 16.7 ms on a 60 Hz screen, even when all is well.
+ * Interval minus JS is time spent elsewhere: GPU, compositing, or idle. If JS is small and the interval is long,
+ * the GPU or compositor is the limit.
+ *
+ * A/B switches, for finding what costs the GPU (each works with or without `perf`):
+ * - `noarc`: hide the gap arc.
+ * - `noshadow`: turn shadows off.
+ * - `dpr=1` (or 1.5, 2 …): render at this pixel ratio instead of min(devicePixelRatio, 2).
+ * Example: `?perf&noshadow&dpr=1`.
  */
-const enabled = typeof location !== "undefined" && new URLSearchParams(location.search).has("perf")
+const params = typeof location !== "undefined" ? new URLSearchParams(location.search) : new URLSearchParams()
+const enabled = params.has("perf")
+const dpr = Number(params.get("dpr"))
 
-type Sample = { interval: number; physics: number; render: number; total: number }
+export const perfOptions = {
+  noArc: params.has("noarc"),
+  noShadow: params.has("noshadow"),
+  /** Pixel ratio override, or null for the default. */
+  pixelRatio: Number.isFinite(dpr) && dpr > 0 ? dpr : null,
+}
+
+type Sample = { interval: number; physics: number; render: number; total: number; calls: number; triangles: number }
+const loadedAt = typeof performance !== "undefined" ? performance.now() : 0
 const samples: Sample[] = []
 let panel: HTMLDivElement | null = null
 let lastReport = 0
@@ -37,6 +57,11 @@ export function recordFrame(sample: Sample) {
     `frame ms ${fmt(samples.map((s) => s.interval))}\n` +
     `js ms    ${fmt(samples.map((s) => s.total))}\n` +
     ` physics ${fmt(samples.map((s) => s.physics))}\n` +
-    ` render  ${fmt(samples.map((s) => s.render))}`
+    ` render  ${fmt(samples.map((s) => s.render))}\n` +
+    `draws    ${samples[samples.length - 1]!.calls}  tris ${samples[samples.length - 1]!.triangles}\n` +
+    `t        ${((now - loadedAt) / 1000).toFixed(0)} s` +
+    (perfOptions.noArc || perfOptions.noShadow || perfOptions.pixelRatio
+      ? `\nab       ${[perfOptions.noArc && "noarc", perfOptions.noShadow && "noshadow", perfOptions.pixelRatio && `dpr=${perfOptions.pixelRatio}`].filter(Boolean).join(" ")}`
+      : "")
   samples.length = 0
 }

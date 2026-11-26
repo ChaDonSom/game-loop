@@ -199,7 +199,14 @@ async function init() {
     const renderStart = performance.now()
     renderer.render(scene, camera)
     const end = performance.now()
-    recordFrame({ interval, physics: physicsMs, render: end - renderStart, total: end - jsStart })
+    recordFrame({
+      interval,
+      physics: physicsMs,
+      render: end - renderStart,
+      total: end - jsStart,
+      calls: renderer.info.render.calls,
+      triangles: renderer.info.render.triangles,
+    })
   }
 
   animate(performance.now())
