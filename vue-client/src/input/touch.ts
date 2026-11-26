@@ -82,32 +82,6 @@ const FLICK_STOP_SPIN = 0.2
 /** Time constant (s) of the held wheel's spin estimate. Short = follows the last instant of the drag. */
 const SPIN_SMOOTHING_S = 0.05
 
-// Local circles (`notes/research/fast-wheel-input.md`, option 4).
-
-/**
- * YOUR CHOICE: wheel turn per turn of the thumb's direction of motion. 1 = one small loop of the thumb, anywhere,
- * turns the wheel 360°. Try small fast circles, then a slow wide arc: which gain feels right?
- */
-export const CIRCLE_GAIN = 1
-/** YOUR CHOICE: px of thumb travel before a new direction is read. Small = responsive but jittery. */
-export const CIRCLE_MIN_STEP_PX = 4
-/** A turn of direction larger than this in one step is a reversal or a jump, not a circle: ignored. 100°. */
-const CIRCLE_MAX_TURN = 100 * DEG
-
-// Tangent drag (plan W, `notes/plans/tangent-wheel-drag.md`).
-
-/**
- * YOUR CHOICE: px of finger travel from a centered wheel to lock, in tangent mode. Sets the gain and (fixed reach)
- * how far the wheel moves in from the corner. Short = quick lock, twitchy at speed. Long = calm, wheel further in.
- */
-export const TANGENT_REACH_PX = 120
-export type TangentReachMode = "fixed" | "edge"
-/**
- * YOUR CHOICE: the default reach mode, before anyone flips the "edge" pill. "fixed" = same px per degree on every
- * grab. "edge" = the screen edge is always lock. Drive ten slaloms in each. In which do you stop looking at the wheel?
- */
-export const TANGENT_REACH_DEFAULT: TangentReachMode = "fixed"
-
 /** SLOT. Response curve from normalized wheel angle (−1…1) to steer (−1…1). */
 function applyCurve(x: number) {
   return x
@@ -206,7 +180,6 @@ watch(wheelLockSetting.value, (deg) => {
   wheelAngle *= scale
   wheelTarget *= scale
   spin *= scale
-  if (tangent) tangent.angle0 *= scale
 })
 
 /** Visual angle (rad) for the SVG. Not curved: the picture shows the wheel, not the curve. */
@@ -214,165 +187,8 @@ export function getWheelAngle() {
   return wheelAngle
 }
 
-// ----------------------------------------------------
-// #region MARK: Tangent drag (plan W)
-// ----------------------------------------------------
-
-type Vec2 = { x: number; y: number }
-export type WheelDragMode = "angular" | "tangent" | "circles"
-
-/** The setting, as the pill shows and saves it. */
-export const wheelDragSetting = storedChoice<WheelDragMode>("touchWheelDrag", ["angular", "tangent", "circles"], "angular")
-/** The mode in use. Follows the setting, but not while the wheel is held, so a change cannot split a drag. */
-export const wheelDragMode = ref<WheelDragMode>(wheelDragSetting.value.value)
-watch(wheelDragSetting.value, (next) => {
-  if (!held) wheelDragMode.value = next
-})
-
-/** Apply a setting change made while held. Call on wheel release. Returns the mode in use. */
-export function syncWheelDragMode() {
-  if (!held) wheelDragMode.value = wheelDragSetting.value.value
-  return wheelDragMode.value
-}
-
-/** Reach mode toggle (tangent mode only). Read at each grab. */
-export const wheelTangentReach = storedChoice<TangentReachMode>("touchWheelReach", ["fixed", "edge"], TANGENT_REACH_DEFAULT)
-/** Flick with momentum toggle (any drag mode). */
+/** Flick with momentum toggle. */
 export const wheelFlick = storedChoice("touchWheelFlick", ["off", "on"] as const, "off")
-/** Track cue toggle (tangent mode only). */
-export const wheelTrackCue = storedChoice("touchWheelCue", ["off", "on"] as const, "off")
-/** Target mark on the track toggle (tangent mode only, needs the track cue). */
-export const wheelTargetMark = storedChoice("touchWheelTarget", ["off", "on"] as const, "off")
-
-type TangentGrab = {
-  mode: TangentReachMode
-  /** Unit slider direction (screen px, y down). +t is clockwise. */
-  t: Vec2
-  /** Touch-down point, from the wheel center. The slider's zero. */
-  p0: Vec2
-  angle0: number
-  /** Reach (px) to lock, the same both ways, so both halves turn the wheel at the same rate. */
-  reach: number
-  /** Signed px along the slider now. */
-  s: number
-}
-let tangent: TangentGrab | null = null
-
-/** Clockwise tangent at the rim point nearest the finger. A grab near the center acts like a grab at the top. */
-export function tangentDirection(dx: number, dy: number, radius: number): Vec2 {
-  const r = Math.hypot(dx, dy)
-  const u = r >= radius * DEAD_RADIUS_FRAC ? { x: dx / r, y: dy / r } : { x: 0, y: -1 }
-  return { x: -u.y, y: u.x }
-}
-
-/** px from `p` along unit `d` to the edge of `rect`. 0 if `p` is already outside on that side. */
-export function rayToRect(p: Vec2, d: Vec2, rect: { left: number; top: number; right: number; bottom: number }) {
-  let best = Infinity
-  if (d.x > 0) best = Math.min(best, (rect.right - p.x) / d.x)
-  if (d.x < 0) best = Math.min(best, (rect.left - p.x) / d.x)
-  if (d.y > 0) best = Math.min(best, (rect.bottom - p.y) / d.y)
-  if (d.y < 0) best = Math.min(best, (rect.top - p.y) / d.y)
-  return Math.max(0, best)
-}
-
-/**
- * Reach (px) of the slider, the same along +t and −t. Fixed: `TANGENT_REACH_PX`. Edge: as long as the shorter half
- * can be, so that half ends at the inset screen edge. At least 1 px so the gain stays finite.
- */
-export function tangentReach(
-  mode: TangentReachMode,
-  p0Screen: Vec2,
-  t: Vec2,
-  rect: { left: number; top: number; right: number; bottom: number },
-) {
-  if (mode === "fixed") return TANGENT_REACH_PX
-  const plus = rayToRect(p0Screen, t, rect)
-  const minus = rayToRect(p0Screen, { x: -t.x, y: -t.y }, rect)
-  return Math.max(1, Math.min(plus, minus))
-}
-
-/** Wheel angle for `s` px along the slider of `grab`. One rate both ways: lock is `reach` px from a centered wheel. */
-export function tangentAngle(grab: TangentGrab, s: number) {
-  return Math.max(-halfLock, Math.min(halfLock, grab.angle0 + (s * halfLock) / grab.reach))
-}
-
-/** Inverse of `tangentAngle`: where `angle` sits on the slider, clamped to the track ends. */
-export function tangentTrackPosition(grab: TangentGrab, angle: number) {
-  const s = ((angle - grab.angle0) * grab.reach) / halfLock
-  return { s: Math.max(-grab.reach, Math.min(grab.reach, s)), clamped: Math.abs(s) > grab.reach }
-}
-
-/** Start a tangent drag. `dx`, `dy` from the wheel center, screen px. `reach` from `tangentReach` for `mode`. */
-export function grabTangent(dx: number, dy: number, radius: number, reach: number, mode: TangentReachMode) {
-  held = true
-  lastFingerAngle = null
-  tangent = {
-    mode,
-    t: tangentDirection(dx, dy, radius),
-    p0: { x: dx, y: dy },
-    angle0: wheelAngle,
-    reach,
-    s: 0,
-  }
-}
-
-/** Absolute from the grab: back at the touch-down point gives the grab angle again. No drift. */
-export function moveTangent(dx: number, dy: number) {
-  if (!held || !tangent) return
-  tangent.s = (dx - tangent.p0.x) * tangent.t.x + (dy - tangent.p0.y) * tangent.t.y
-  wheelAngle = tangentAngle(tangent, tangent.s)
-}
-
-/** The current (or last) tangent drag, for the track cue. `null` before the first tangent grab. */
-export function getTangentGrab(): Readonly<TangentGrab> | null {
-  return tangent
-}
-
-/**
- * Wheel center distance (px) from the left and bottom edges. Tangent mode moves the wheel in until a slider from any
- * grab point reaches `TANGENT_REACH_PX` in every direction: √(hitR² + L²). `hitR`, not `R`: a grab can land up to
- * the hit radius.
- */
-export function wheelCenterInset(mode: WheelDragMode, radius: number, hitRadius: number) {
-  const base = EDGE_MARGIN + radius
-  if (mode !== "tangent") return base
-  return Math.max(base, Math.hypot(hitRadius, TANGENT_REACH_PX))
-}
-
-// ----------------------------------------------------
-// #region MARK: Local circles
-// ----------------------------------------------------
-
-let circleLast: Vec2 | null = null
-let circleHeading: number | null = null
-
-/** Start a local-circles drag. The point can be anywhere: only the thumb's direction of motion counts. */
-export function grabCircle(x: number, y: number) {
-  held = true
-  lastFingerAngle = null
-  circleLast = { x, y }
-  circleHeading = null
-}
-
-/**
- * Steer by how much the thumb's direction of motion turns. A clockwise loop on screen turns the wheel clockwise
- * (right) by CIRCLE_GAIN × 360°. A straight drag does not steer.
- */
-export function moveCircle(x: number, y: number) {
-  if (!held || !circleLast) return
-  const vx = x - circleLast.x
-  const vy = y - circleLast.y
-  if (Math.hypot(vx, vy) < CIRCLE_MIN_STEP_PX) return
-  const heading = Math.atan2(vy, vx)
-  if (circleHeading !== null) {
-    const turn = wrapToPi(heading - circleHeading)
-    if (Math.abs(turn) <= CIRCLE_MAX_TURN) {
-      wheelAngle = Math.max(-halfLock, Math.min(halfLock, wheelAngle + turn * CIRCLE_GAIN))
-    }
-  }
-  circleHeading = heading
-  circleLast = { x, y }
-}
 
 // ----------------------------------------------------
 // #region MARK: Centering target and haptic tap (plan C)
@@ -396,7 +212,7 @@ export function centerTarget(slip: FrontAxleSlip) {
   return Math.max(-1, Math.min(1, road / MAX_STEERING)) * halfLock
 }
 
-/** Last target from `updateWheel`, wheel radians. The gap arc, the tap, and the tangent target mark read it. */
+/** Last target from `updateWheel`, wheel radians. The gap arc and the tap read it. */
 export function getWheelTarget() {
   return wheelTarget
 }
@@ -465,9 +281,6 @@ export function updateWheel(dt: number, rolling: number, slip: FrontAxleSlip) {
   spinAngle = wheelAngle
 }
 
-export function isWheelHeld() {
-  return held
-}
 
 // ----------------------------------------------------
 // #region MARK: Front-wheel rolling (centering source)
@@ -500,7 +313,6 @@ export function resetWheel() {
   wheelTarget = 0
   spin = 0
   spinAngle = 0
-  tangent = null
   prevRotations.fill(null)
 }
 

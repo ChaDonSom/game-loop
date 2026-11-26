@@ -3,13 +3,12 @@ import { test } from "node:test"
 import assert from "node:assert/strict"
 import { MAX_STEERING } from "@game-loop/shared"
 import {
-  TANGENT_REACH_PX,
   VISUAL_LOCK,
   centerTarget,
   getWheelAngle,
   getWheelTarget,
-  grabTangent,
-  moveTangent,
+  grabWheel,
+  moveWheel,
   releaseWheel,
   resetWheel,
   setTapSink,
@@ -39,9 +38,12 @@ function sweep(s: ReturnType<typeof slip>) {
   resetWheel()
   let taps = 0
   setTapSink(() => taps++)
-  grabTangent(0, -80, 80, TANGENT_REACH_PX, "fixed")
-  for (let px = 0; px <= TANGENT_REACH_PX; px += 2) {
-    moveTangent(px, -80)
+  // Turn the wheel clockwise from 0 to 400° (past the 200° target) in 3° steps, one per physics step.
+  const r = 80
+  grabWheel(0, -r, r)
+  for (let deg = 3; deg <= 400; deg += 3) {
+    const a = (deg * Math.PI) / 180
+    moveWheel(r * Math.sin(a), -r * Math.cos(a), r)
     updateWheel(1 / 60, 10, s)
   }
   // Rest on lock for a while: no more taps.

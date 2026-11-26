@@ -1,14 +1,11 @@
-// Fast-turn options: local circles, flick with momentum, adjustable lock.
+// Fast-turn options: flick with momentum, adjustable lock.
 import { test } from "node:test"
 import assert from "node:assert/strict"
 import {
-  CIRCLE_GAIN,
   FLICK_MIN_SPIN,
   getHalfLock,
   getWheelAngle,
-  grabCircle,
   grabWheel,
-  moveCircle,
   moveWheel,
   releaseWheel,
   resetWheel,
@@ -20,45 +17,6 @@ import {
 const still = { angle: 0, rearAngle: 0, forwardSpeed: 0, lateralSpeed: 0 }
 const step = 1 / 60
 const close = (a: number, b: number, eps = 1e-6) => Math.abs(a - b) < eps
-
-/** A loop of `turns` around (cx, cy), radius r, in `n` points. Positive turns = clockwise on screen (y down). */
-function loop(cx: number, cy: number, r: number, turns: number, n: number) {
-  const pts: Array<[number, number]> = []
-  for (let i = 0; i <= n; i++) {
-    const a = (i / n) * turns * 2 * Math.PI
-    pts.push([cx + r * Math.cos(a), cy + r * Math.sin(a)])
-  }
-  return pts
-}
-
-test("circles: one small clockwise loop anywhere turns the wheel +360° × gain", () => {
-  resetWheel()
-  const pts = loop(500, 300, 20, 1, 72)
-  grabCircle(...pts[0]!)
-  for (const p of pts.slice(1)) moveCircle(...p)
-  releaseWheel()
-  // The first direction reading needs CIRCLE_MIN_STEP_PX of travel and has no turn to compare with: on a 20 px
-  // loop that loses about 4/20 rad (11°). So expect 360° minus up to 25°.
-  const full = 2 * Math.PI * CIRCLE_GAIN
-  const got = getWheelAngle()
-  assert.ok(got <= Math.min(full, getHalfLock()) + 1e-9 && got > full - (25 * Math.PI) / 180, `${got} vs ${full}`)
-})
-
-test("circles: counter-clockwise turns left; a straight drag does not steer", () => {
-  resetWheel()
-  const pts = loop(100, 100, 15, -0.5, 36)
-  grabCircle(...pts[0]!)
-  for (const p of pts.slice(1)) moveCircle(...p)
-  assert.ok(getWheelAngle() < -2.5, `${getWheelAngle()}`)
-  const before = getWheelAngle()
-  for (let x = 0; x < 300; x += 10) moveCircle(pts[pts.length - 1]![0] + x, pts[pts.length - 1]![1] + 40)
-  // Only the turn onto the straight line counts, then nothing.
-  const after = getWheelAngle()
-  for (let x = 300; x < 600; x += 10) moveCircle(pts[pts.length - 1]![0] + x, pts[pts.length - 1]![1] + 40)
-  assert.equal(getWheelAngle(), after)
-  assert.ok(after !== undefined && before !== undefined)
-  releaseWheel()
-})
 
 /** Drag the wheel clockwise at `degPerStep` for `steps` physics steps (angular mode), then release. */
 function spinAndRelease(degPerStep: number, steps: number) {

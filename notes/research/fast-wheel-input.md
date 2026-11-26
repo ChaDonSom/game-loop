@@ -1,6 +1,6 @@
 # Research: faster large turns on the touch wheel
 
-Status: **options 1, 4 and 5 built as toggles** (owner's choice): the "flick" pill, the third drag mode (circles), and the "lock" slider. Slots are marked `YOUR CHOICE` in `vue-client/src/input/touch.ts`.
+Status: **options 1, 4 and 5 were built as toggles and tried on a device.** Kept: 1 (the "flick" pill) and 5 (the "lock" slider). Removed: 4 (local circles), and tangent drag. Slots are marked `YOUR CHOICE` in `vue-client/src/input/touch.ts`.
 
 ## The problem, at its root
 

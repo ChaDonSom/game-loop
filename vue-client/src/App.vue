@@ -3,15 +3,7 @@ import Datagrams from "@/components/Datagrams.vue"
 import TouchControls from "@/components/TouchControls.vue"
 import { worldMismatch } from "@/store/network"
 import { cycleQuality, qualityLevel, qualityOverridden, qualitySetting } from "@/three/quality"
-import {
-  touchVisible,
-  wheelDragSetting,
-  wheelFlick,
-  wheelLockSetting,
-  wheelTangentReach,
-  wheelTargetMark,
-  wheelTrackCue,
-} from "@/input/touch"
+import { touchVisible, wheelFlick, wheelLockSetting } from "@/input/touch"
 import { onBeforeUnmount, onMounted, ref } from "vue"
 
 /** Fullscreen on a phone hides the browser's reload button. */
@@ -54,30 +46,13 @@ async function toggleFullscreen() {
 const quality = qualitySetting.value
 
 // Touch wheel settings. Shown only while the touch controls are.
-const dragMode = wheelDragSetting.value
-const reach = wheelTangentReach.value
-const trackCue = wheelTrackCue.value
-const targetMark = wheelTargetMark.value
 const flick = wheelFlick.value
 const lockDeg = wheelLockSetting.value
-/** angular → tangent → circles → angular */
-function toggleDragMode() {
-  wheelDragSetting.set(dragMode.value === "angular" ? "tangent" : dragMode.value === "tangent" ? "circles" : "angular")
-}
 function toggleFlick() {
   wheelFlick.set(flick.value === "on" ? "off" : "on")
 }
 function onLockInput(e: Event) {
   wheelLockSetting.set(Number((e.target as HTMLInputElement).value))
-}
-function toggleReach() {
-  wheelTangentReach.set(reach.value === "edge" ? "fixed" : "edge")
-}
-function toggleTrackCue() {
-  wheelTrackCue.set(trackCue.value === "on" ? "off" : "on")
-}
-function toggleTargetMark() {
-  wheelTargetMark.set(targetMark.value === "on" ? "off" : "on")
 }
 
 onMounted(() => {
@@ -117,23 +92,6 @@ onBeforeUnmount(() => {
     <template v-if="touchVisible">
       <button
         type="button"
-        class="pill icon"
-        :title="`Wheel drag: ${dragMode}`"
-        :aria-label="`Wheel drag: ${dragMode}`"
-        @click="toggleDragMode"
-      >
-        <svg viewBox="-8 -8 16 16" aria-hidden="true">
-          <circle r="5" class="stroke" />
-          <template v-if="dragMode === 'angular'">
-            <circle cx="0" cy="-5" r="1.6" class="fill" />
-            <path d="M 3.2 -6.6 A 7.3 7.3 0 0 1 6.8 -2.6" class="stroke" />
-          </template>
-          <line v-else-if="dragMode === 'tangent'" x1="-6" y1="-5" x2="6" y2="-5" class="stroke" />
-          <path v-else d="M 1 -1.5 A 2 2 0 1 1 -1.6 1.2 A 3.4 3.4 0 1 1 3.6 -2.2" class="stroke" />
-        </svg>
-      </button>
-      <button
-        type="button"
         class="pill"
         :class="{ off: flick !== 'on' }"
         :title="`Flick with momentum: ${flick}`"
@@ -154,39 +112,6 @@ onBeforeUnmount(() => {
           @input="onLockInput"
         />
       </label>
-      <template v-if="dragMode === 'tangent'">
-        <button
-          type="button"
-          class="pill"
-          :class="{ off: reach !== 'edge' }"
-          :title="`Tangent reach: ${reach === 'edge' ? 'to the screen edge' : 'fixed'}`"
-          :aria-label="`Tangent reach: ${reach}`"
-          @click="toggleReach"
-        >
-          edge
-        </button>
-        <button
-          type="button"
-          class="pill"
-          :class="{ off: trackCue !== 'on' }"
-          :title="`Track cue: ${trackCue}`"
-          :aria-label="`Track cue: ${trackCue}`"
-          @click="toggleTrackCue"
-        >
-          track
-        </button>
-        <button
-          v-if="trackCue === 'on'"
-          type="button"
-          class="pill"
-          :class="{ off: targetMark !== 'on' }"
-          :title="`Target mark: ${targetMark}`"
-          :aria-label="`Target mark: ${targetMark}`"
-          @click="toggleTargetMark"
-        >
-          target
-        </button>
-      </template>
     </template>
     <p class="tagline">Simple soapbox cars in a shared physics environment.</p>
   </div>
@@ -233,23 +158,6 @@ onBeforeUnmount(() => {
 }
 .pill.off {
   opacity: 0.5;
-}
-.pill.icon {
-  display: inline-flex;
-  align-items: center;
-}
-.pill.icon svg {
-  width: 17px;
-  height: 17px;
-}
-.pill.icon .stroke {
-  fill: none;
-  stroke: white;
-  stroke-width: 1.4;
-  stroke-linecap: round;
-}
-.pill.icon .fill {
-  fill: white;
 }
 .tagline {
   margin: 0 0 0 4px;

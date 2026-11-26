@@ -95,6 +95,8 @@ No solid edge in any diagram: nothing new crosses the network.
 
 ## W. Tangent wheel drag
 
+**Removed after runtime review.** The owner tried it on a device and dropped it: "tangent mode probably isn't the solution". The plan stays in `notes/plans/tangent-wheel-drag.md` as a record. What stayed from this work: a grab anywhere in the bottom half grabs the wheel, flick with momentum, and the lock slider (`notes/research/fast-wheel-input.md`).
+
 Full plan: `notes/plans/tangent-wheel-drag.md` (approved). It is your attachment from the review. I changed only its links to the shelved slider and to the C5 cue.
 
 Why it fits your review: in the heat of the moment you grab the wheel and pull in the direction you want, then run out of circle. Tangent drag makes that pull a straight slider, set by where you grab. Angular drag stays as the default, so the circling interaction is still there.
