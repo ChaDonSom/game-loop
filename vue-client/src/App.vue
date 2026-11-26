@@ -2,6 +2,7 @@
 import Datagrams from "@/components/Datagrams.vue"
 import TouchControls from "@/components/TouchControls.vue"
 import { worldMismatch } from "@/store/network"
+import { touchVisible, wheelDragSetting, wheelTargetMark, wheelTrackCue } from "@/input/touch"
 import { onBeforeUnmount, onMounted, ref } from "vue"
 
 /** Fullscreen on a phone hides the browser's reload button. */
@@ -41,6 +42,20 @@ async function toggleFullscreen() {
   }
 }
 
+// Touch wheel settings. Shown only while the touch controls are.
+const dragMode = wheelDragSetting.value
+const trackCue = wheelTrackCue.value
+const targetMark = wheelTargetMark.value
+function toggleDragMode() {
+  wheelDragSetting.set(dragMode.value === "angular" ? "tangent" : "angular")
+}
+function toggleTrackCue() {
+  wheelTrackCue.set(trackCue.value === "on" ? "off" : "on")
+}
+function toggleTargetMark() {
+  wheelTargetMark.set(targetMark.value === "on" ? "off" : "on")
+}
+
 onMounted(() => {
   document.addEventListener("fullscreenchange", syncFullscreen)
   document.addEventListener("webkitfullscreenchange", syncFullscreen)
@@ -65,6 +80,47 @@ onBeforeUnmount(() => {
     >
       {{ isFullscreen ? "⤡" : "⛶" }}
     </button>
+    <template v-if="touchVisible">
+      <button
+        type="button"
+        class="pill icon"
+        :title="`Wheel drag: ${dragMode}`"
+        :aria-label="`Wheel drag: ${dragMode}`"
+        @click="toggleDragMode"
+      >
+        <svg viewBox="-8 -8 16 16" aria-hidden="true">
+          <circle r="5" class="stroke" />
+          <template v-if="dragMode === 'angular'">
+            <circle cx="0" cy="-5" r="1.6" class="fill" />
+            <path d="M 3.2 -6.6 A 7.3 7.3 0 0 1 6.8 -2.6" class="stroke" />
+          </template>
+          <line v-else x1="-6" y1="-5" x2="6" y2="-5" class="stroke" />
+        </svg>
+      </button>
+      <template v-if="dragMode === 'tangent'">
+        <button
+          type="button"
+          class="pill"
+          :class="{ off: trackCue !== 'on' }"
+          :title="`Track cue: ${trackCue}`"
+          :aria-label="`Track cue: ${trackCue}`"
+          @click="toggleTrackCue"
+        >
+          track
+        </button>
+        <button
+          v-if="trackCue === 'on'"
+          type="button"
+          class="pill"
+          :class="{ off: targetMark !== 'on' }"
+          :title="`Target mark: ${targetMark}`"
+          :aria-label="`Target mark: ${targetMark}`"
+          @click="toggleTargetMark"
+        >
+          target
+        </button>
+      </template>
+    </template>
     <p class="tagline">Simple soapbox cars in a shared physics environment.</p>
   </div>
   <div
@@ -96,6 +152,26 @@ onBeforeUnmount(() => {
   font: 600 12px/1.4 system-ui, sans-serif;
   cursor: pointer;
   touch-action: manipulation;
+}
+.pill.off {
+  opacity: 0.5;
+}
+.pill.icon {
+  display: inline-flex;
+  align-items: center;
+}
+.pill.icon svg {
+  width: 17px;
+  height: 17px;
+}
+.pill.icon .stroke {
+  fill: none;
+  stroke: white;
+  stroke-width: 1.4;
+  stroke-linecap: round;
+}
+.pill.icon .fill {
+  fill: white;
 }
 .tagline {
   margin: 0 0 0 4px;

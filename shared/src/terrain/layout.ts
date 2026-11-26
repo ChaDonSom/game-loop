@@ -1,5 +1,5 @@
 import { VEHICLE_DIMENSIONS } from "../vehicle/dimensions.js"
-import type { BankedTurnPiece, BumpPiece, RoughPatchPiece, TerrainLayout } from "./types.js"
+import type { BankedPathPiece, BumpPiece, RoughPatchPiece, TerrainLayout } from "./types.js"
 
 /**
  * The terrain both sides build. Plain data only: no functions, no Math.random().
@@ -37,7 +37,19 @@ const bumps: BumpPiece[] = Array.from({ length: bumpCount }, (_, i) => ({
 }))
 
 // ---------------------------------------------------------------------------
-// Banked turn: shape and placement
+// Banked roads: shared settings
+// ---------------------------------------------------------------------------
+const DEG = Math.PI / 180
+// YOUR CHOICE: metres of road over which the bank changes (arc to straight, or one bank to the other).
+// Today's turn had about 9.4 m (30° of arc). Too short: a jolt. Too long: the arc is not banked when you need it.
+const easeLength = 19
+/** Height of the wall on the raised edge, m. Fades with the bank, so straights stay open. 0 = no wall. */
+const barrierHeight = 1
+/** Centre-line samples per metre. */
+const pathResolution = 1
+
+// ---------------------------------------------------------------------------
+// Banked turn (the first one): shape and placement
 // ---------------------------------------------------------------------------
 // YOUR CHOICE: how steep and how tight. Try car lengths for the radius.
 const bankAngleDegrees = 15
@@ -46,18 +58,84 @@ const turnRoadWidth = 6 * car.width
 // YOUR CHOICE: where it starts. Its entry faces +Z, centred on this point.
 const turnEntry = { x: 0, z: 140 }
 
-const bankedTurn: BankedTurnPiece = {
-  kind: "bankedTurn",
+const bankedTurn: BankedPathPiece = {
+  kind: "bankedPath",
   id: "banked-turn",
   surface: "road",
   position: { x: turnEntry.x, y: 0, z: turnEntry.z },
   rotationY: 0,
-  innerRadius: turnInnerRadius,
   roadWidth: turnRoadWidth,
-  bankAngle: (bankAngleDegrees * Math.PI) / 180,
-  arc: Math.PI,
-  easeArc: Math.PI / 6,
-  segments: 48,
+  segments: [{ type: "arc", turn: "right", radius: turnInnerRadius + turnRoadWidth / 2, angle: Math.PI }],
+  bankAngle: bankAngleDegrees * DEG,
+  easeLength,
+  barrierHeight,
+  closed: false,
+  resolution: pathResolution,
+}
+
+// ---------------------------------------------------------------------------
+// Banked oval: size and bank
+// ---------------------------------------------------------------------------
+// YOUR CHOICE: the oval. No-friction speed of a banked curve: v = √(g · r · tan θ) in m/s (× 2.237 for mph).
+// Pick the speed you want to hold, then the radius or the angle. Top speed is 94 mph (42 m/s).
+// Each straight must be longer than easeLength, so its middle is flat: that is where you drive on and off.
+const ovalRadius = 50 // to the centre line
+const ovalStraight = 100
+const ovalBankDegrees = 20
+const ovalRoadWidth = 10 * car.width
+
+// Placement (not a slot): behind the spawn ramp, centred on x = 0, z = -260. Region x -200…200, z -480…-40.
+const ovalCenter = { x: 0, z: -260 }
+const oval: BankedPathPiece = {
+  kind: "bankedPath",
+  id: "banked-oval",
+  surface: "road",
+  // Starts at the bottom of the right-hand straight (the -X side), heading +Z, turning left.
+  position: { x: ovalCenter.x - ovalRadius, y: 0, z: ovalCenter.z - ovalStraight / 2 },
+  rotationY: 0,
+  roadWidth: ovalRoadWidth,
+  segments: [
+    { type: "straight", length: ovalStraight },
+    { type: "arc", turn: "left", radius: ovalRadius, angle: Math.PI },
+    { type: "straight", length: ovalStraight },
+    { type: "arc", turn: "left", radius: ovalRadius, angle: Math.PI },
+  ],
+  bankAngle: ovalBankDegrees * DEG,
+  easeLength,
+  barrierHeight,
+  closed: true,
+  resolution: pathResolution,
+}
+
+// ---------------------------------------------------------------------------
+// Banked S curve: size and bank
+// ---------------------------------------------------------------------------
+// YOUR CHOICE: each arc's radius and angle, the straight between them, and the bank.
+// The bank flips sides between the arcs. A longer middle straight gives the flip more room.
+const sRadius = 40 // to the centre line
+const sArcDegrees = 90
+const sMiddleStraight = 10
+const sBankDegrees = 15
+const sRoadWidth = 6 * car.width
+
+// Placement (not a slot): left of the bump row. Region x 60…400, z 60…480.
+const sCurve: BankedPathPiece = {
+  kind: "bankedPath",
+  id: "banked-s-curve",
+  surface: "road",
+  position: { x: 100, y: 0, z: 100 },
+  rotationY: 0,
+  roadWidth: sRoadWidth,
+  segments: [
+    { type: "arc", turn: "left", radius: sRadius, angle: sArcDegrees * DEG },
+    { type: "straight", length: sMiddleStraight },
+    { type: "arc", turn: "right", radius: sRadius, angle: sArcDegrees * DEG },
+  ],
+  bankAngle: sBankDegrees * DEG,
+  easeLength,
+  barrierHeight,
+  closed: false,
+  resolution: pathResolution,
 }
 
 // ---------------------------------------------------------------------------
@@ -83,4 +161,4 @@ const roughPatch: RoughPatchPiece = {
   seed: 42,
 }
 
-export const DEFAULT_TERRAIN_LAYOUT: TerrainLayout = [...bumps, bankedTurn, roughPatch]
+export const DEFAULT_TERRAIN_LAYOUT: TerrainLayout = [...bumps, bankedTurn, roughPatch, oval, sCurve]

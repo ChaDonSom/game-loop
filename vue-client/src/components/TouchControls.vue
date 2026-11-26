@@ -5,6 +5,7 @@
  */
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue"
 import keys from "@/input/keys"
+import WheelCue, { type TrackCue } from "@/components/WheelCue.vue"
 import {
   EDGE_MARGIN,
   PEDAL_H_FRAC,
@@ -13,8 +14,22 @@ import {
   WHEEL_RADIUS_FRAC,
   gear,
   getPedal,
+  getTangentGrab,
   getWheelAngle,
+  getWheelTarget,
+  grabTangent,
   grabWheel,
+  isWheelHeld,
+  moveTangent,
+  syncWheelDragMode,
+  tangentDirection,
+  tangentReach,
+  tangentTrackPosition,
+  wheelCenterInset,
+  wheelDragMode,
+  wheelTargetMark,
+  wheelTrackCue,
+  TANGENT_REACH_MODE,
   longPressGear,
   moveWheel,
   pedalValue,
@@ -30,6 +45,14 @@ const CONTROL_OPACITY = 0.75
 const GEAR_IDLE_OPACITY = 0.45
 const LONG_PRESS_MS = 600
 const HIT_FRAC = 1.15
+/** YOUR CHOICE: the gap arc shows when the gap (wheel degrees) is larger than this. A normal corner vs a slide. */
+const ARC_SHOW_GAP_DEG = 20
+/** YOUR CHOICE: above this gap (wheel degrees) the arc gets the `big` class (see `.gap-arc.big` in the CSS). */
+const ARC_BIG_GAP_DEG = 180
+/** The arc never draws more than this (wheel degrees). A larger gap gets an arrowhead: "keep going". */
+const ARC_MAX_DEG = 330
+/** Keep the track cue mounted this long after release, so its CSS fade (`--fade-ms` in WheelCue.vue) can run. */
+const CUE_LINGER_MS = 300
 
 // ----------------------------------------------------
 // #region MARK: Layout (recomputed on resize only)
@@ -49,6 +72,7 @@ const layout = computed(() => {
   const isPhone = coarsePointer.matches && S < 500
   const R = S * (isPhone ? PHONE_WHEEL_RADIUS_FRAC : WHEEL_RADIUS_FRAC)
   const hitR = R * HIT_FRAC
+  const wheelInset = wheelCenterInset(wheelDragMode.value, R, hitR)
   const pedalW = S * PEDAL_W_FRAC
   const pedalH = S * PEDAL_H_FRAC
   const gap = EDGE_MARGIN
@@ -56,8 +80,8 @@ const layout = computed(() => {
     wheel: {
       width: px(hitR * 2),
       height: px(hitR * 2),
-      left: inset("left", EDGE_MARGIN + R - hitR),
-      bottom: inset("bottom", EDGE_MARGIN + R - hitR),
+      left: inset("left", wheelInset - hitR),
+      bottom: inset("bottom", wheelInset - hitR),
       opacity: CONTROL_OPACITY,
     },
     wheelSvg: { width: px(R * 2), height: px(R * 2) },
@@ -89,8 +113,11 @@ const layout = computed(() => {
 
 const wheelEl = ref<HTMLElement | null>(null)
 const wheelGroup = ref<SVGGElement | null>(null)
+const safeRectEl = ref<HTMLElement | null>(null)
 let wheelPointer: number | null = null
 let wheelCenter = { x: 0, y: 0, radius: 1 }
+/** Which drag the current grab uses. Set at touch-down, so a mode change cannot split a drag. */
+let activeDrag: "angular" | "tangent" = "angular"
 
 function onWheelDown(e: PointerEvent) {
   if (wheelPointer !== null || !wheelEl.value) return
@@ -103,12 +130,22 @@ function onWheelDown(e: PointerEvent) {
   wheelEl.value.setPointerCapture(e.pointerId)
   wheelPointer = e.pointerId
   wheelCenter = center
-  grabWheel(dx, dy, center.radius)
+  activeDrag = syncWheelDragMode()
+  if (activeDrag === "tangent") {
+    const t = tangentDirection(dx, dy, center.radius)
+    const rect = safeRectEl.value?.getBoundingClientRect() ?? { left: 0, top: 0, right: innerWidth, bottom: innerHeight }
+    grabTangent(dx, dy, center.radius, tangentReach(TANGENT_REACH_MODE, { x: e.clientX, y: e.clientY }, t, rect))
+  } else {
+    grabWheel(dx, dy, center.radius)
+  }
 }
 
 function onWheelMove(e: PointerEvent) {
   if (e.pointerId !== wheelPointer) return
-  moveWheel(e.clientX - wheelCenter.x, e.clientY - wheelCenter.y, wheelCenter.radius)
+  const dx = e.clientX - wheelCenter.x
+  const dy = e.clientY - wheelCenter.y
+  if (activeDrag === "tangent") moveTangent(dx, dy)
+  else moveWheel(dx, dy, wheelCenter.radius)
 }
 
 function onWheelUp(e: PointerEvent) {
@@ -116,6 +153,8 @@ function onWheelUp(e: PointerEvent) {
   wheelEl.value?.releasePointerCapture(e.pointerId)
   wheelPointer = null
   releaseWheel()
+  releasedAt = performance.now()
+  syncWheelDragMode()
 }
 
 // ----------------------------------------------------
@@ -185,6 +224,7 @@ const drivingKeys = new Set(Object.keys(keys))
 function releaseAll() {
   wheelPointer = null
   releaseWheel()
+  syncWheelDragMode()
   for (const name of ["throttle", "brake"] as const) {
     pedalPointers[name] = null
     setPedal(name, 0)
@@ -210,11 +250,81 @@ watch(touchVisible, (visible) => {
 // #region MARK: Per-frame visuals
 // ----------------------------------------------------
 
+const gapArc = ref<SVGPathElement | null>(null)
+const gapHead = ref<SVGPathElement | null>(null)
+const cue = ref<TrackCue | null>(null)
+let releasedAt = -Infinity
+
+/** Point on the wheel rim (SVG units, radius `r`) at wheel angle `a` radians. 0 = top, clockwise positive. */
+function rimPoint(a: number, r: number) {
+  return { x: r * Math.sin(a), y: -r * Math.cos(a) }
+}
+
+/** Gap arc: from the current notch to the target, along the rim. Hidden when the gap is small. */
+function drawGapArc(angle: number, target: number) {
+  const arc = gapArc.value
+  const head = gapHead.value
+  if (!arc || !head) return
+  const gap = target - angle
+  const gapDeg = Math.abs(gap) * (180 / Math.PI)
+  if (gapDeg <= ARC_SHOW_GAP_DEG) {
+    arc.style.display = "none"
+    head.style.display = "none"
+    return
+  }
+  const span = Math.sign(gap) * Math.min(Math.abs(gap), (ARC_MAX_DEG * Math.PI) / 180)
+  const r = 1.05 // just outside the rim stroke (which reaches 0.96)
+  const a = rimPoint(angle, r)
+  const b = rimPoint(angle + span, r)
+  const large = Math.abs(span) > Math.PI ? 1 : 0
+  const sweep = span > 0 ? 1 : 0 // SVG: 1 = clockwise on screen
+  arc.setAttribute("d", `M ${a.x} ${a.y} A ${r} ${r} 0 ${large} ${sweep} ${b.x} ${b.y}`)
+  arc.classList.toggle("big", gapDeg > ARC_BIG_GAP_DEG)
+  arc.style.display = ""
+  if (Math.abs(gap) > Math.abs(span)) {
+    // Arrowhead at the far end, pointing along the rim in the gap's direction.
+    const end = angle + span
+    const along = { x: Math.cos(end) * Math.sign(span), y: Math.sin(end) * Math.sign(span) }
+    const outward = { x: Math.sin(end), y: -Math.cos(end) }
+    const size = 0.12
+    const tip = { x: b.x + along.x * size, y: b.y + along.y * size }
+    const p1 = { x: b.x + outward.x * size * 0.7, y: b.y + outward.y * size * 0.7 }
+    const p2 = { x: b.x - outward.x * size * 0.7, y: b.y - outward.y * size * 0.7 }
+    head.setAttribute("d", `M ${tip.x} ${tip.y} L ${p1.x} ${p1.y} L ${p2.x} ${p2.y} Z`)
+    head.style.display = ""
+  } else {
+    head.style.display = "none"
+  }
+}
+
+/** Track cue for tangent mode: plain numbers for WheelCue.vue. */
+function buildCue(target: number): TrackCue | null {
+  const grab = getTangentGrab()
+  const held = isWheelHeld()
+  const lingering = performance.now() - releasedAt < CUE_LINGER_MS
+  if (!grab || activeDrag !== "tangent" || wheelTrackCue.value.value !== "on" || (!held && !lingering)) return null
+  return {
+    visible: true,
+    fade: held ? 1 : 0,
+    origin: { x: wheelCenter.x + grab.p0.x, y: wheelCenter.y + grab.p0.y },
+    dir: grab.t,
+    minus: grab.minus,
+    plus: grab.plus,
+    finger: Math.max(-grab.minus, Math.min(grab.plus, grab.s)),
+    target: wheelTargetMark.value.value === "on" ? tangentTrackPosition(grab, target) : null,
+  }
+}
+
 let frame = 0
 function draw() {
   frame = requestAnimationFrame(draw)
   if (!touchVisible.value) return
-  wheelGroup.value?.setAttribute("transform", `rotate(${(getWheelAngle() * 180) / Math.PI})`)
+  const angle = getWheelAngle()
+  const target = getWheelTarget()
+  wheelGroup.value?.setAttribute("transform", `rotate(${(angle * 180) / Math.PI})`)
+  drawGapArc(angle, target)
+  const next = buildCue(target)
+  if (next || cue.value) cue.value = next
   for (const name of ["throttle", "brake"] as const) {
     const fill = pedalFills[name].value
     if (fill) fill.style.height = `${getPedal(name) * 100}%`
@@ -240,6 +350,13 @@ onBeforeUnmount(() => {
   if (gearTimer) clearTimeout(gearTimer)
 })
 
+const safeRectStyle = {
+  top: `calc(env(safe-area-inset-top) + ${EDGE_MARGIN}px)`,
+  left: inset("left", EDGE_MARGIN),
+  right: inset("right", EDGE_MARGIN),
+  bottom: inset("bottom", EDGE_MARGIN),
+}
+
 const throttleEl = pedalEls.throttle
 const brakeEl = pedalEls.brake
 const throttleFill = pedalFills.throttle
@@ -248,6 +365,9 @@ const brakeFill = pedalFills.brake
 
 <template>
   <div v-show="touchVisible" class="touch-root" @contextmenu.prevent>
+    <!-- Screen minus the safe area and the edge margin. Edge-reach tangent drag measures to it. -->
+    <div ref="safeRectEl" class="safe-rect" :style="safeRectStyle" aria-hidden="true" />
+    <WheelCue v-if="cue" :cue="cue" />
     <div
       ref="wheelEl"
       class="control wheel"
@@ -258,6 +378,9 @@ const brakeFill = pedalFills.brake
       @pointercancel="onWheelUp"
     >
       <svg viewBox="-1 -1 2 2" :style="layout.wheelSvg" aria-hidden="true">
+        <!-- Gap arc: absolute angles, so it sits outside the rotating group. Look: .gap-arc in the CSS. -->
+        <path ref="gapArc" class="gap-arc" style="display: none" />
+        <path ref="gapHead" class="gap-head" style="display: none" />
         <g ref="wheelGroup">
           <circle r="0.86" fill="none" stroke="#1d1d22" stroke-width="0.2" />
           <circle r="0.86" fill="none" stroke="#e8e8ec" stroke-width="0.08" />
@@ -335,6 +458,25 @@ const brakeFill = pedalFills.brake
 .wheel svg {
   display: block;
   overflow: visible;
+}
+.safe-rect {
+  position: absolute;
+  visibility: hidden;
+}
+/* YOUR CHOICE: the gap arc look. Can you read it without looking straight at the wheel? */
+.gap-arc {
+  fill: none;
+  stroke: #ffd166;
+  stroke-width: 0.1;
+  stroke-linecap: round;
+  opacity: 0.8;
+}
+.gap-arc.big {
+  stroke: #ff6b3d;
+  opacity: 1;
+}
+.gap-head {
+  fill: #ff6b3d;
 }
 .pedal {
   box-sizing: border-box;

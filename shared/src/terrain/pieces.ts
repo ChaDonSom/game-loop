@@ -1,6 +1,7 @@
 import RAPIER from "@dimforge/rapier3d-compat"
 import { seededRandom } from "./random.js"
-import type { BankedTurnPiece, BumpPiece, RoughPatchPiece, TerrainPiece } from "./types.js"
+import { GROUND_CLEARANCE, bankedPathGeometry } from "./bankedPath.js"
+import type { BankedPathPiece, BumpPiece, RoughPatchPiece, TerrainPiece } from "./types.js"
 
 /**
  * Collider shapes for each piece, in the piece's own frame (origin on the ground, facing +Z).
@@ -11,15 +12,12 @@ export function pieceColliders(piece: TerrainPiece): RAPIER.ColliderDesc[] {
   switch (piece.kind) {
     case "bump":
       return [bumpCollider(piece)]
-    case "bankedTurn":
-      return [bankedTurnCollider(piece)]
+    case "bankedPath":
+      return [bankedPathCollider(piece)]
     case "roughPatch":
       return [roughPatchCollider(piece)]
   }
 }
-
-/** Lifts flat pieces just above the ground, so the wheel rays hit them first and they do not flicker. */
-const GROUND_CLEARANCE = 0.01
 
 // 90 degrees (PI / 2) around the Z-axis: sin(PI/4) ≈ 0.7071, cos(PI/4) ≈ 0.7071
 const rotZ90 = { x: 0, y: 0, z: Math.SQRT1_2, w: Math.SQRT1_2 }
@@ -86,43 +84,7 @@ function roughPatchCollider(piece: RoughPatchPiece): RAPIER.ColliderDesc {
   })
 }
 
-/** Shape of a banked turn. Shared by the collider and (through it) the client mesh. */
-export function bankedTurnGeometry(piece: BankedTurnPiece) {
-  const across = 4 // vertices across the road, minus one
-  const centerRadius = piece.innerRadius + piece.roadWidth / 2
-  const vertices: number[] = []
-  const indices: number[] = []
-
-  for (let s = 0; s <= piece.segments; s++) {
-    const theta = (s / piece.segments) * piece.arc
-    // Tilt eases in and out at each end, so you can drive on and off from flat ground.
-    const endDistance = Math.min(theta, piece.arc - theta)
-    const ease = piece.easeArc > 0 ? Math.min(1, endDistance / piece.easeArc) : 1
-    const tilt = Math.tan(piece.bankAngle * (ease * ease * (3 - 2 * ease)))
-    const cos = Math.cos(theta)
-    const sin = Math.sin(theta)
-
-    for (let a = 0; a <= across; a++) {
-      const offset = (a / across) * piece.roadWidth // 0 at the inner edge
-      const radius = piece.innerRadius + offset
-      // Circle centre at (-centerRadius, 0): theta = 0 is the origin, heading +Z, bending toward -X.
-      vertices.push(-centerRadius + radius * cos, GROUND_CLEARANCE + offset * tilt, radius * sin)
-    }
-  }
-
-  const row = across + 1
-  for (let s = 0; s < piece.segments; s++) {
-    for (let a = 0; a < across; a++) {
-      const i = s * row + a
-      // Counter-clockwise seen from above, so the face normals point up.
-      indices.push(i, i + row, i + 1, i + 1, i + row, i + row + 1)
-    }
-  }
-
-  return { vertices: new Float32Array(vertices), indices: new Uint32Array(indices) }
-}
-
-function bankedTurnCollider(piece: BankedTurnPiece): RAPIER.ColliderDesc {
-  const { vertices, indices } = bankedTurnGeometry(piece)
+function bankedPathCollider(piece: BankedPathPiece): RAPIER.ColliderDesc {
+  const { vertices, indices } = bankedPathGeometry(piece)
   return RAPIER.ColliderDesc.trimesh(vertices, indices)
 }

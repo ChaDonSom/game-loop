@@ -1,6 +1,6 @@
 # Plan: tangent wheel drag, slide-aware centering, banked oval and S curve
 
-Status: **revision 2, after your first review.** No code yet.
+Status: **approved. Scaffold pushed in this PR.** Your slots are marked `YOUR CHOICE` in the code.
 
 Revision 2 changes:
 

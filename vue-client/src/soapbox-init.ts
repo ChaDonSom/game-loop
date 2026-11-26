@@ -12,6 +12,7 @@ import {
   resetDriveState,
   buildTerrainPhysics,
   applySurfaceGrip,
+  frontAxleSlip,
   DEFAULT_WORLD,
 } from "@game-loop/shared"
 import {
@@ -108,7 +109,8 @@ async function init() {
 
     while (accumulator >= fixedDt) {
       // Center the touch wheel every step, so it is centered when touch comes back after the gamepad.
-      updateWheel(fixedDt, frontRolling(vehicle, fixedDt, wheelRadius))
+      // The released wheel turns toward the front axle's direction of travel (countersteer in a slide).
+      updateWheel(fixedDt, frontRolling(vehicle, fixedDt, wheelRadius), frontAxleSlip(chassis.body))
       const gamepad = getGamePadState()
       if (gamepad.connected && touchVisible.value) touchVisible.value = false
       const pad = gamepad.connected ? gamepad : touchVisible.value ? getTouchPad() : gamepad

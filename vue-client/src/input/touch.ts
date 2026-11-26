@@ -4,9 +4,10 @@
  * Angles are radians. Screen y points down, so a growing `atan2(dy, dx)` is clockwise on screen. Clockwise wheel =
  * positive `wheelAngle` = positive `steer` = steer right (the drive code flips the sign for Rapier).
  */
-import { ref } from "vue"
+import { ref, watch } from "vue"
 import type RAPIER from "@dimforge/rapier3d-compat"
-import type { Pad } from "@game-loop/shared"
+import { MAX_STEERING, type FrontAxleSlip, type Pad } from "@game-loop/shared"
+import { storedChoice } from "./storedChoice.ts"
 
 const DEG = Math.PI / 180
 
@@ -45,6 +46,42 @@ export const PEDAL_SAT_HIGH = 0.92
  */
 export const PEDAL_CURVE_EXP = 2
 
+// Slide-aware centering (plan C). Speeds in m/s, as the physics uses them; mph in the comments.
+
+/** Forward speed (m/s) below which the centering target is straight. 1 m/s ≈ 2 mph. */
+export const TARGET_BLEND_LOW = 1
+/** Forward speed (m/s) above which the target is the full 0-front-slip angle. 4 m/s ≈ 9 mph. */
+export const TARGET_BLEND_HIGH = 4
+/**
+ * YOUR CHOICE: fraction of the 0-front-slip angle the wheel goes to, 0…1. 1 = what reality does (plan C1).
+ * Try 1 first, then lower it, and compare how a slide ends.
+ */
+export const ALIGN_GAIN = 1
+
+/** YOUR CHOICE: length of the haptic tap, ms. Slide, let go, catch: does the tap come when you would grab? */
+export const TAP_MS = 15
+/**
+ * YOUR CHOICE: rear slip angle (radians) that counts as "sliding" for the tap. The rear wheels do not steer, so their
+ * slip stays small in a normal corner and grows in a slide. 0.15 rad ≈ 9°. Check that a normal corner stays quiet.
+ */
+export const SLIDE_REAR_SLIP = 0.15
+/** After a tap, the gap must grow past this (wheel radians) before the next tap. 30° of wheel. */
+export const TAP_REARM_GAP = 30 * DEG
+
+// Tangent drag (plan W, `notes/plans/tangent-wheel-drag.md`).
+
+/**
+ * YOUR CHOICE: px of finger travel from a centered wheel to lock, in tangent mode. Sets the gain and (fixed reach)
+ * how far the wheel moves in from the corner. Short = quick lock, twitchy at speed. Long = calm, wheel further in.
+ */
+export const TANGENT_REACH_PX = 120
+export type TangentReachMode = "fixed" | "edge"
+/**
+ * YOUR CHOICE: "fixed" (same px per degree on every grab) or "edge" (the screen edge is always lock).
+ * Drive ten slaloms in each mode. In which do you stop looking at the wheel first?
+ */
+export const TANGENT_REACH_MODE: TangentReachMode = "fixed"
+
 /** SLOT. Response curve from normalized wheel angle (−1…1) to steer (−1…1). */
 function applyCurve(x: number) {
   return x
@@ -55,15 +92,32 @@ function pedalCurve(travel: number) {
   return Math.pow(travel, PEDAL_CURVE_EXP)
 }
 
-/** SLOT. One centering step. Never crosses zero; returns exactly 0 when `rolling` is 0 and the angle is 0. */
-function centerStep(angle: number, rolling: number, dt: number) {
+/**
+ * YOUR CHOICE: one centering step, toward `target` (wheel radians). Never crosses the target; returns `angle`
+ * unchanged when `rolling` is 0. Today's rate rule. Real wheels snap to countersteer fast in a slide: is the
+ * 960°/s cap fast enough? A faster rate for a large gap would go here.
+ */
+function centerStep(angle: number, target: number, rolling: number, dt: number) {
   const effective = rolling / (1 + rolling / CENTER_SAT_SPEED)
-  return angle - Math.sign(angle) * Math.min(Math.abs(angle), CENTER_RATE * effective * dt)
+  const gap = target - angle
+  return angle + Math.sign(gap) * Math.min(Math.abs(gap), CENTER_RATE * effective * dt)
+}
+
+/**
+ * YOUR CHOICE: how the target goes from straight (stopped, reverse) to the 0-front-slip angle (moving), 0…1.
+ * Reverse at walking speed (about 3 mph) and release. Then slide at speed and release.
+ */
+function targetBlend(forwardSpeed: number) {
+  return clampUnit((forwardSpeed - TARGET_BLEND_LOW) / (TARGET_BLEND_HIGH - TARGET_BLEND_LOW))
 }
 
 // ----------------------------------------------------
 // #region MARK: Math helpers
 // ----------------------------------------------------
+
+function clampUnit(x: number) {
+  return Math.min(1, Math.max(0, x))
+}
 
 export function wrapToPi(angle: number) {
   return angle - 2 * Math.PI * Math.floor((angle + Math.PI) / (2 * Math.PI))
@@ -116,9 +170,208 @@ export function getWheelAngle() {
   return wheelAngle
 }
 
+// ----------------------------------------------------
+// #region MARK: Tangent drag (plan W)
+// ----------------------------------------------------
+
+type Vec2 = { x: number; y: number }
+export type WheelDragMode = "angular" | "tangent"
+
+/** The setting, as the pill shows and saves it. */
+export const wheelDragSetting = storedChoice<WheelDragMode>("touchWheelDrag", ["angular", "tangent"], "angular")
+/** The mode in use. Follows the setting, but not while the wheel is held, so a change cannot split a drag. */
+export const wheelDragMode = ref<WheelDragMode>(wheelDragSetting.value.value)
+watch(wheelDragSetting.value, (next) => {
+  if (!held) wheelDragMode.value = next
+})
+
+/** Apply a setting change made while held. Call on wheel release. Returns the mode in use. */
+export function syncWheelDragMode() {
+  if (!held) wheelDragMode.value = wheelDragSetting.value.value
+  return wheelDragMode.value
+}
+
+/** Track cue toggle (tangent mode only). */
+export const wheelTrackCue = storedChoice("touchWheelCue", ["off", "on"] as const, "off")
+/** Target mark on the track toggle (tangent mode only, needs the track cue). */
+export const wheelTargetMark = storedChoice("touchWheelTarget", ["off", "on"] as const, "off")
+
+type TangentGrab = {
+  mode: TangentReachMode
+  /** Unit slider direction (screen px, y down). +t is clockwise. */
+  t: Vec2
+  /** Touch-down point, from the wheel center. The slider's zero. */
+  p0: Vec2
+  angle0: number
+  /** Reach (px) along +t and −t to lock. */
+  plus: number
+  minus: number
+  /** Signed px along the slider now. */
+  s: number
+}
+let tangent: TangentGrab | null = null
+
+/** Clockwise tangent at the rim point nearest the finger. A grab near the center acts like a grab at the top. */
+export function tangentDirection(dx: number, dy: number, radius: number): Vec2 {
+  const r = Math.hypot(dx, dy)
+  const u = r >= radius * DEAD_RADIUS_FRAC ? { x: dx / r, y: dy / r } : { x: 0, y: -1 }
+  return { x: -u.y, y: u.x }
+}
+
+/** px from `p` along unit `d` to the edge of `rect`. 0 if `p` is already outside on that side. */
+export function rayToRect(p: Vec2, d: Vec2, rect: { left: number; top: number; right: number; bottom: number }) {
+  let best = Infinity
+  if (d.x > 0) best = Math.min(best, (rect.right - p.x) / d.x)
+  if (d.x < 0) best = Math.min(best, (rect.left - p.x) / d.x)
+  if (d.y > 0) best = Math.min(best, (rect.bottom - p.y) / d.y)
+  if (d.y < 0) best = Math.min(best, (rect.top - p.y) / d.y)
+  return Math.max(0, best)
+}
+
+/**
+ * Reach along ±t. Fixed: `TANGENT_REACH_PX` both ways. Edge: from the touch-down point (screen px) to the inset
+ * screen rect, at least 1 px so the gain stays finite.
+ */
+export function tangentReach(
+  mode: TangentReachMode,
+  p0Screen: Vec2,
+  t: Vec2,
+  rect: { left: number; top: number; right: number; bottom: number },
+) {
+  if (mode === "fixed") return { plus: TANGENT_REACH_PX, minus: TANGENT_REACH_PX }
+  return {
+    plus: Math.max(1, rayToRect(p0Screen, t, rect)),
+    minus: Math.max(1, rayToRect(p0Screen, { x: -t.x, y: -t.y }, rect)),
+  }
+}
+
+/** Wheel angle for `s` px along the slider of `grab`. */
+export function tangentAngle(grab: TangentGrab, s: number) {
+  if (grab.mode === "fixed") {
+    return Math.max(-halfLock, Math.min(halfLock, grab.angle0 + (s * halfLock) / grab.plus))
+  }
+  if (s >= 0) return grab.angle0 + Math.min(1, s / grab.plus) * (halfLock - grab.angle0)
+  return grab.angle0 - Math.min(1, -s / grab.minus) * (halfLock + grab.angle0)
+}
+
+/** Inverse of `tangentAngle`: where `angle` sits on the slider, clamped to the track ends. */
+export function tangentTrackPosition(grab: TangentGrab, angle: number) {
+  let s: number
+  if (grab.mode === "fixed") {
+    s = ((angle - grab.angle0) * grab.plus) / halfLock
+  } else if (angle >= grab.angle0) {
+    const room = halfLock - grab.angle0
+    s = room > 0 ? ((angle - grab.angle0) / room) * grab.plus : grab.plus
+  } else {
+    const room = halfLock + grab.angle0
+    s = room > 0 ? -((grab.angle0 - angle) / room) * grab.minus : -grab.minus
+  }
+  const clamped = s > grab.plus || s < -grab.minus
+  return { s: Math.max(-grab.minus, Math.min(grab.plus, s)), clamped }
+}
+
+/** Start a tangent drag. `dx`, `dy` from the wheel center, screen px. `reach` from `tangentReach`. */
+export function grabTangent(dx: number, dy: number, radius: number, reach: { plus: number; minus: number }) {
+  held = true
+  lastFingerAngle = null
+  tangent = {
+    mode: TANGENT_REACH_MODE,
+    t: tangentDirection(dx, dy, radius),
+    p0: { x: dx, y: dy },
+    angle0: wheelAngle,
+    plus: reach.plus,
+    minus: reach.minus,
+    s: 0,
+  }
+}
+
+/** Absolute from the grab: back at the touch-down point gives the grab angle again. No drift. */
+export function moveTangent(dx: number, dy: number) {
+  if (!held || !tangent) return
+  tangent.s = (dx - tangent.p0.x) * tangent.t.x + (dy - tangent.p0.y) * tangent.t.y
+  wheelAngle = tangentAngle(tangent, tangent.s)
+}
+
+/** The current (or last) tangent drag, for the track cue. `null` before the first tangent grab. */
+export function getTangentGrab(): Readonly<TangentGrab> | null {
+  return tangent
+}
+
+/**
+ * Wheel center distance (px) from the left and bottom edges. Tangent mode moves the wheel in until a slider from any
+ * grab point reaches `TANGENT_REACH_PX` in every direction: √(hitR² + L²). `hitR`, not `R`: a grab can land up to
+ * the hit radius.
+ */
+export function wheelCenterInset(mode: WheelDragMode, radius: number, hitRadius: number) {
+  const base = EDGE_MARGIN + radius
+  if (mode === "angular") return base
+  return Math.max(base, Math.hypot(hitRadius, TANGENT_REACH_PX))
+}
+
+// ----------------------------------------------------
+// #region MARK: Centering target and haptic tap (plan C)
+// ----------------------------------------------------
+
+let wheelTarget = 0
+let sliding = false
+let wasHeld = false
+let tapArmed = true
+let lastGap: number | null = null
+let tapSink = (ms: number) => {
+  if (typeof navigator !== "undefined" && typeof navigator.vibrate === "function") navigator.vibrate(ms)
+}
+
+/**
+ * Wheel angle (radians) the released wheel turns toward: the front axle's direction of travel, blended to straight
+ * at low speed. Assumes `applyCurve` is linear: if you curve it, map through its inverse here.
+ */
+export function centerTarget(slip: FrontAxleSlip) {
+  const road = targetBlend(slip.forwardSpeed) * ALIGN_GAIN * slip.angle
+  return Math.max(-1, Math.min(1, road / MAX_STEERING)) * halfLock
+}
+
+/** Last target from `updateWheel`, wheel radians. The gap arc, the tap, and the tangent target mark read it. */
+export function getWheelTarget() {
+  return wheelTarget
+}
+
+/** For tests: replace `navigator.vibrate`. */
+export function setTapSink(sink: (ms: number) => void) {
+  tapSink = sink
+}
+
+/** One tap when the held wheel reaches the target (the gap changes sign) while the car slides. */
+function updateTap() {
+  if (!held) {
+    wasHeld = false
+    lastGap = null
+    return
+  }
+  if (!wasHeld) {
+    wasHeld = true
+    tapArmed = true
+    lastGap = null
+  }
+  const gap = wheelTarget - wheelAngle
+  if (!tapArmed && Math.abs(gap) > TAP_REARM_GAP) tapArmed = true
+  const reached = lastGap !== null && (gap === 0 || Math.sign(gap) !== Math.sign(lastGap))
+  if (tapArmed && sliding && reached) {
+    tapSink(TAP_MS)
+    tapArmed = false
+  }
+  lastGap = gap
+}
+
 /** Run each fixed step. Centers only while released. */
-export function updateWheel(dt: number, rolling: number) {
-  if (!held) wheelAngle = centerStep(wheelAngle, rolling, dt)
+export function updateWheel(dt: number, rolling: number, slip: FrontAxleSlip) {
+  wheelTarget = centerTarget(slip)
+  sliding = Math.abs(slip.rearAngle) > SLIDE_REAR_SLIP
+  if (!held) wheelAngle = centerStep(wheelAngle, wheelTarget, rolling, dt)
+  updateTap()
+}
+
+export function isWheelHeld() {
+  return held
 }
 
 // ----------------------------------------------------
@@ -149,6 +402,8 @@ export function frontRolling(vehicle: RAPIER.DynamicRayCastVehicleController, dt
 /** Call on respawn, next to `resetDriveState`. */
 export function resetWheel() {
   wheelAngle = 0
+  wheelTarget = 0
+  tangent = null
   prevRotations.fill(null)
 }
 
@@ -172,29 +427,11 @@ export function getPedal(name: PedalName) {
 // ----------------------------------------------------
 
 export type Gear = "AUTO" | "D" | "R"
-const GEAR_KEY = "touchGear"
+const gearSetting = storedChoice<Gear>("touchGear", ["AUTO", "D", "R"], "AUTO")
 
-function loadGear(): Gear {
-  try {
-    const saved = localStorage.getItem(GEAR_KEY)
-    if (saved === "AUTO" || saved === "D" || saved === "R") return saved
-  } catch {
-    // Storage blocked: use the default.
-  }
-  return "AUTO"
-}
-
-export const gear = ref<Gear>(loadGear())
+export const gear = gearSetting.value
 export const touchVisible = ref(false)
-
-function setGear(next: Gear) {
-  gear.value = next
-  try {
-    localStorage.setItem(GEAR_KEY, next)
-  } catch {
-    // Storage blocked: keep the mode for this page only.
-  }
-}
+const setGear = gearSetting.set
 
 /** Auto → manual D. Manual: D ↔ R. */
 export function tapGear() {

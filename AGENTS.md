@@ -23,7 +23,8 @@ npm workspaces. Build order: `shared` → `node-transport` → `vue-client`.
 
 - Install: `npm ci --ignore-scripts`. The build does not need the native WebTransport install step.
 - Build and type-check all: `npm run build`. Run both commands before you push.
-- CI (`.github/workflows/build.yml`) runs `npm ci --ignore-scripts` and `npm run build` on each PR and on each push to `soapbox-car` and `master`.
+- Headless tests: `npm test`. Node's built-in runner on `tests/*.test.ts` (type stripping, no test dependency). It builds `shared` first. Client modules under test must import with `.ts` extensions and no `@/` alias.
+- CI (`.github/workflows/build.yml`) runs `npm ci --ignore-scripts`, `npm run build`, and `npm test` on each PR and on each push to `soapbox-car` and `master`.
 - To run the server locally, you need the native step: use plain `npm ci`.
 
 ## Ship a change

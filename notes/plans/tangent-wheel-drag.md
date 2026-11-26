@@ -1,6 +1,6 @@
 # Plan: tangent drag for the touch wheel (optional mode)
 
-Status: **approved by the owner.** Next: scaffold with slots. No code yet. Part of a larger PR (#11). This plan covers only this change (W).
+Status: **approved. Scaffold pushed in this PR.** Your slots are marked `YOUR CHOICE` in the code. Part of a larger PR (#11). This plan covers only this change (W).
 
 Source: the owner's attachment in the PR #11 review. Changed here only where it pointed at shelved or replaced parts of the larger plan: "How this fits the larger PR", "Resolved questions", and the C5 reference in W6.
 

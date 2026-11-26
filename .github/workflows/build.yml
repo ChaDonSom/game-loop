@@ -28,3 +28,6 @@ jobs:
       - run: npm ci --ignore-scripts
 
       - run: npm run build
+
+      # Headless tests (Node's built-in runner, TypeScript via type stripping). Builds `shared` first.
+      - run: npm test
