@@ -48,6 +48,10 @@ export default function initChassis(world: RAPIER.World, spawnIndex = 0) {
     pose.translation.z,
   )
   chassisBodyDesc.setRotation(pose.rotation)
+  // No sleep: while a body sleeps, the wheel controller still adds suspension impulses to its velocity. The car stays
+  // still but reports a growing false velocity (~2.8 m/s up at rest), which `reconcile` and remote-car proxies then
+  // extrapolate. It also launches the car when it wakes.
+  chassisBodyDesc.setCanSleep(false)
   const chassisBody = world.createRigidBody(chassisBodyDesc)
 
   world.createCollider(chassisColliderDesc(), chassisBody)

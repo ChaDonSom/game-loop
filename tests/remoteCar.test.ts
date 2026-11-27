@@ -2,7 +2,7 @@
 import { test } from "node:test"
 import assert from "node:assert/strict"
 import RAPIER from "@dimforge/rapier3d-compat"
-import { chassisColliderDesc, initRapier, type VehicleState } from "@game-loop/shared"
+import { chassisColliderDesc, initChassis, initGround, initRapier, initWheels, type VehicleState } from "@game-loop/shared"
 import RemoteCar from "../vue-client/src/physics/remoteCar.ts"
 
 const dt = 1 / 60
@@ -77,4 +77,33 @@ test("remove takes the proxy out of the world", async () => {
   const car = new RemoteCar(world)
   car.remove(world)
   assert.equal(world.bodies.len(), 0)
+})
+
+test("an inactive proxy does not collide, and snaps back to the target when active again", async () => {
+  const { world } = await initRapier()
+  const car = new RemoteCar(world)
+  car.follow(state(0, 0), 0, dt)
+  car.setActive(false)
+  const local = localCar(world, -4, 10)
+  for (let i = 0; i < 40; i++) world.step()
+  assert.ok(local.linvel().z > 9.9, `local ${local.linvel().z}`)
+  car.setActive(true)
+  assert.equal(car.follow(state(20, 0), 0, dt), true)
+  assert.ok(Math.abs(car.body.translation().z - 20) < 1e-6)
+})
+
+test("car bodies never sleep: at rest the reported velocity stays near zero", async () => {
+  const { world } = await initRapier()
+  initGround(world)
+  const chassis = initChassis(world)
+  chassis.body.setTranslation({ x: 0, y: 1.2, z: 0 }, true)
+  chassis.body.setRotation({ x: 0, y: 0, z: 0, w: 1 }, true)
+  const vehicle = world.createVehicleController(chassis.body)
+  initWheels(chassis, vehicle)
+  for (let i = 0; i < 600; i++) {
+    vehicle.updateVehicle(dt)
+    world.step()
+  }
+  // Asleep, the wheel controller grew this to ~2.8 m/s while the car stood still.
+  assert.ok(Math.abs(chassis.body.linvel().y) < 0.2, `vy ${chassis.body.linvel().y}`)
 })

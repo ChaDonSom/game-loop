@@ -46,7 +46,7 @@ import { lastSentSeq, queueControls, stateLagSeconds } from "@/network"
 import { authoritativePlayers, myId, mySpawnIndex, worldMismatch } from "@/store/network"
 import reconcile from "@/physics/reconcile"
 import RenderSmoothing from "@/physics/renderSmoothing"
-import RemoteCar from "@/physics/remoteCar"
+import RemoteCar, { STALE_SECONDS } from "@/physics/remoteCar"
 import { perfEnabled, recordFrame, setPerfExtra } from "@/debug/perfHud"
 import { initQuality, qualitySetting } from "@/three/quality"
 import { watch } from "vue"
@@ -211,8 +211,12 @@ async function init() {
       for (const [id, remote] of remoteCars) {
         const snapshot = authoritativePlayers.value[id]
         if (!snapshot) continue
-        const ahead = predictionLead + (jsStart - snapshot.time) / 1000 - stepEndBehindNow
-        if (remote.car.follow(snapshot, ahead, fixedDt)) remote.smoothing.reset()
+        const age = (jsStart - snapshot.time) / 1000
+        const fresh = age < STALE_SECONDS
+        remote.car.setActive(fresh)
+        remote.mesh.visible = fresh
+        if (!fresh) continue
+        if (remote.car.follow(snapshot, predictionLead + age - stepEndBehindNow, fixedDt)) remote.smoothing.reset()
         remote.smoothing.beforeStep()
       }
       smoothing.beforeStep()

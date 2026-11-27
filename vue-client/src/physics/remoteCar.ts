@@ -23,7 +23,7 @@ const VELOCITY_TIME = 0.15
 /** YOUR CHOICE: a position error closes at about 1/this per second, s. */
 const POSITION_TIME = 0.25
 /** Position errors below this are left alone, m. Extrapolation is never exact; chasing tiny errors adds jitter. */
-const POSITION_DEAD_ZONE = 0.1
+const POSITION_DEAD_ZONE = 0.02
 const ROTATION_TIME = 0.25
 /** Rotation errors below this are left alone, rad (~1°). */
 const ROTATION_DEAD_ZONE = 0.02
@@ -33,6 +33,11 @@ const SNAP_DISTANCE_PER_SPEED = 0.1
 const SNAP_ANGLE = 1.0
 /** Do not extrapolate further than this, s. Same limit as `reconcile`. */
 export const MAX_AHEAD_SECONDS = 0.3
+/**
+ * A state older than this is stale, s (lost datagrams, a dropped connection). The proxy then turns off, so a car
+ * the client no longer hears about cannot block or hit the local car at an old pose.
+ */
+export const STALE_SECONDS = 0.5
 
 type Vec3 = { x: number; y: number; z: number }
 type Quat = { x: number; y: number; z: number; w: number }
@@ -143,6 +148,16 @@ export default class RemoteCar {
       true,
     )
     return false
+  }
+
+  /**
+   * Turns the proxy on or off. Off: it is out of the physics (no collisions) until turned on again. When it comes back
+   * on, the next `follow` puts it at the target at once, since it did not move while off.
+   */
+  setActive(active: boolean) {
+    if (this.body.isEnabled() === active) return
+    this.body.setEnabled(active)
+    if (active) this.placed = false
   }
 
   remove(world: RAPIER.World) {
