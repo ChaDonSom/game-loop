@@ -9,6 +9,11 @@ function pickGamepad(): Gamepad | null {
   return pads.find((pad): pad is Gamepad => !!pad?.connected && pad.mapping === "standard") ?? null
 }
 
+/** True while the flip button is down: the top face button (3: Y on Xbox, triangle on PlayStation). */
+export function gamepadFlipHeld() {
+  return pickGamepad()?.buttons[3]?.pressed ?? false
+}
+
 export default function getGamePadState() {
   const gp = pickGamepad()
   if (!gp) {

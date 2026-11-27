@@ -13,6 +13,8 @@ import {
   buildTerrainPhysics,
   applySurfaceGrip,
   frontAxleSlip,
+  isStuckUpsideDown,
+  tryFlip,
   DEFAULT_WORLD,
 } from "@game-loop/shared"
 import {
@@ -28,12 +30,19 @@ import {
   initWheels as initWheelMeshes,
   buildTerrainMeshes,
 } from "./three"
-import getGamePadState from "@/input/pad"
+import getGamePadState, { gamepadFlipHeld } from "@/input/pad"
+import {
+  getFlipCount,
+  pollGamepadFlip,
+  resetFlip,
+  takeFlipPress,
+  updateCanFlip,
+} from "@/input/flip"
 import keys from "@/input/keys"
 import { frontRolling, getTouchPad, resetWheel, touchVisible, updateWheel } from "@/input/touch"
 import { moveWheelMeshesToWorldCoordinates } from "@/three/wheels"
 import updateCamera from "@/three/camera"
-import { queueControls, stateLagSeconds } from "@/network"
+import { lastSentSeq, queueControls, stateLagSeconds } from "@/network"
 import { authoritativePlayers, myId, mySpawnIndex, worldMismatch } from "@/store/network"
 import reconcile from "@/physics/reconcile"
 import RenderSmoothing from "@/physics/renderSmoothing"
@@ -88,11 +97,22 @@ async function init() {
   const fixedDt = 1 / 60
   let lastFrameTime = performance.now()
   let accumulator = 0
+  /** Server states with an `ack` at or below this are not used. Raised after a local teleport (flip). */
   let lastReconciledAck = 0
   let steering = 0
   /** Session (`myId`) whose spawn the local car was last reset to. Each `welcome` gives a new id. */
   let spawnedForId: string | null = null
   const smoothing = new RenderSmoothing(chassis.body)
+
+  /**
+   * After the local car jumps (respawn, flip): reset the wheel and the render history, and skip server states at or
+   * below `ackFloor`. Those states come from before the jump, so a correction toward them would undo it.
+   */
+  function afterTeleport(ackFloor: number) {
+    resetWheel()
+    smoothing.reset()
+    lastReconciledAck = ackFloor
+  }
 
   function animate(currentTime: number) {
     requestAnimationFrame(animate)
@@ -109,10 +129,9 @@ async function init() {
     if (myId.value !== null && mySpawnIndex.value !== null && myId.value !== spawnedForId) {
       resetChassisToSpawn(chassis.body, mySpawnIndex.value)
       resetDriveState(vehicle)
-      resetWheel()
-      smoothing.reset()
+      resetFlip()
+      afterTeleport(0)
       spawnedForId = myId.value
-      lastReconciledAck = 0
     }
 
     const physicsStart = performance.now()
@@ -124,7 +143,16 @@ async function init() {
       if (gamepad.connected && touchVisible.value) touchVisible.value = false
       const pad = gamepad.connected ? gamepad : touchVisible.value ? getTouchPad() : gamepad
       const currentKeys = { ...keys }
-      queueControls({ keys: currentKeys, pad })
+
+      // A flip press goes to the server in `controls`. The server runs the same rule on the same step.
+      pollGamepadFlip(gamepadFlipHeld())
+      // The press goes out with the next `controls`. States acking anything sent before it predate the flip.
+      if (takeFlipPress() && tryFlip(world, chassis.body, vehicle)) {
+        afterTeleport(Math.max(lastReconciledAck, lastSentSeq()))
+      }
+      updateCanFlip(fixedDt, isStuckUpsideDown(chassis.body))
+
+      queueControls({ keys: currentKeys, pad, flip: getFlipCount() })
       steering = handleSteeringAndDrive(fixedDt, chassis.body, pad, currentKeys, vehicle).steering
 
       applySurfaceGrip(vehicle, terrain, DEFAULT_WORLD.surfaceGrip)

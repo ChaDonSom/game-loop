@@ -61,3 +61,9 @@ Real camber and tire width need real wheel colliders. That is a much larger job.
 - Make each model a preset `VehicleSpec` plus a mesh. Real cars differ in wheelbase, track, and height, not only shape. One pick then sets physics and visuals.
 - Color is one field in the spec. Add it at any step.
 - Build stylized low-poly models from primitives. If you download models, check each license.
+
+## Later
+
+Saved for later. Not in the order above.
+
+- **Remote cars in the client physics world.** The client world has no collider for remote cars, so it cannot predict car-to-car contact, and `reconcile` snaps after each hit. Idea: a kinematic body per remote car, moved to its extrapolated pose each frame. Issue: ChaDonSom/game-loop#13. Found in `notes/plans/issue-12-flip-multiplayer-portrait.md` (M8).

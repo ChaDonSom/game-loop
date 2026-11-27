@@ -12,6 +12,8 @@ import {
   buildTerrainPhysics,
   applySurfaceGrip,
   DEFAULT_WORLD,
+  isSpawnClear,
+  tryFlip,
   type VehicleStateMessage,
 } from "@game-loop/shared"
 import { clamp } from "@game-loop/shared"
@@ -24,7 +26,7 @@ import controls from "./controls.js"
  * physics-world state broadcasts.
  * TODO: Finish implementing server-side physics loop and state broadcasting.
  */
-export default async function initServerRapier(broadcastDatagram: (message: VehicleStateMessage) => void) {
+export default async function initServerRapier(sendState: (message: VehicleStateMessage) => void) {
   // ----------------------------------------------------
   // #region MARK: 1. INITIALIZE RAPIER WASM & PHYSICS WORLD
   // ----------------------------------------------------
@@ -41,13 +43,40 @@ export default async function initServerRapier(broadcastDatagram: (message: Vehi
       vehicle: RAPIER.DynamicRayCastVehicleController
       steering: number
       spawnIndex: number
+      /** Last `flip` count from this player's `controls` that the server acted on. */
+      flipCount: number
+      /**
+       * The `controls` the last physics step applied: its seq and receive time. Sent as `ack`, so a state with
+       * `ack >= N` includes input N. The last received seq is not enough: a broadcast can fall between receipt and
+       * the next step.
+       */
+      applied: { seq: number; t: number } | null
     }
   >()
-  const defaultControls = { seq: 0, keys: {}, pad: { connected: false, steer: 0, throttle: 0, brake: 0 }, t: Date.now() }
+  const defaultControls = {
+    seq: 0,
+    keys: {},
+    pad: { connected: false, steer: 0, throttle: 0, brake: 0 },
+    flip: 0,
+    t: Date.now(),
+  }
 
-  /** Lowest spawn slot no connected player holds. A slot frees up when its player leaves. */
+  /**
+   * YOUR CHOICE: how many spawn slots to try for a clear spot. Each row of 2 slots is 3 m further down the ramp
+   * (`spawnPose` in `shared/src/rapier/chassis.ts`, ramp in `shared/src/rapier/ramp.ts`). Too many, and a new car can
+   * start off the ramp.
+   */
+  const SPAWN_SLOTS_TO_TRY = 6
+
+  /**
+   * Lowest spawn slot that no connected player holds and no car sits on. A slot frees up when its player leaves. If no
+   * slot in range is clear, the lowest slot no player holds, even if a car sits on it (the old rule).
+   */
   function freeSpawnIndex() {
     const taken = new Set(Array.from(players.values(), (player) => player.spawnIndex))
+    for (let index = 0; index < SPAWN_SLOTS_TO_TRY; index++) {
+      if (!taken.has(index) && isSpawnClear(world, index)) return index
+    }
     let index = 0
     while (taken.has(index)) index++
     return index
@@ -62,7 +91,7 @@ export default async function initServerRapier(broadcastDatagram: (message: Vehi
     const chassis = initChassis(world, spawnIndex)
     const vehicle = world.createVehicleController(chassis.body)
     initWheels(chassis, vehicle)
-    players.set(id, { chassis, vehicle, steering: 0, spawnIndex })
+    players.set(id, { chassis, vehicle, steering: 0, spawnIndex, flipCount: 0, applied: null })
     return spawnIndex
   }
 
@@ -83,6 +112,13 @@ export default async function initServerRapier(broadcastDatagram: (message: Vehi
   function update() {
     for (const [id, player] of players) {
       const currentControls = controls[id] ?? defaultControls
+      if (controls[id]) player.applied = { seq: currentControls.seq, t: currentControls.t }
+      // Any change of the count is a press: out-of-order datagrams are already dropped, so it never needs a reset.
+      const flipCount = currentControls.flip ?? 0
+      if (flipCount !== player.flipCount) {
+        player.flipCount = flipCount
+        tryFlip(world, player.chassis.body, player.vehicle)
+      }
       player.steering = handleSteeringAndDrive(
         1 / 60,
         player.chassis.body,
@@ -99,26 +135,20 @@ export default async function initServerRapier(broadcastDatagram: (message: Vehi
 
   function broadcastState() {
     const now = Date.now()
-    broadcastDatagram({
+    sendState({
       type: "state",
       seq: ++stateSeq,
-      players: Array.from(players, ([id, player]) => {
-        const position = player.chassis.body.translation()
-        const rotation = player.chassis.body.rotation()
-        const velocity = player.chassis.body.linvel()
-        const angularVelocity = player.chassis.body.angvel()
-        const playerControls = controls[id]
-        return {
-          id,
-          ack: playerControls?.seq ?? 0,
-          ackAgeMs: playerControls ? Math.max(0, now - playerControls.t) : 0,
-          position: { x: position.x, y: position.y, z: position.z },
-          rotation: { x: rotation.x, y: rotation.y, z: rotation.z, w: rotation.w },
-          velocity: { x: velocity.x, y: velocity.y, z: velocity.z },
-          angularVelocity: { x: angularVelocity.x, y: angularVelocity.y, z: angularVelocity.z },
-          steering: player.steering,
-        }
-      }),
+      // Rapier vectors as is: `packVehicleStates` rounds them into plain objects for the wire.
+      players: Array.from(players, ([id, { chassis, applied, steering }]) => ({
+        id,
+        ack: applied?.seq ?? 0,
+        ackAgeMs: applied ? Math.max(0, now - applied.t) : 0,
+        position: chassis.body.translation(),
+        rotation: chassis.body.rotation(),
+        velocity: chassis.body.linvel(),
+        angularVelocity: chassis.body.angvel(),
+        steering,
+      })),
       t: now,
     })
   }

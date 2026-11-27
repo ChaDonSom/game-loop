@@ -1,4 +1,4 @@
 import { Keys, Pad } from "@game-loop/shared"
 
-let controls: Record<string, { seq: number; keys: Keys; pad: Pad; t: number }> = {}
+let controls: Record<string, { seq: number; keys: Keys; pad: Pad; flip?: number; t: number }> = {}
 export default controls
