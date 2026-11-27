@@ -66,4 +66,4 @@ Real camber and tire width need real wheel colliders. That is a much larger job.
 
 Saved for later. Not in the order above.
 
-- **Remote cars in the client physics world.** The client world has no collider for remote cars, so it cannot predict car-to-car contact, and `reconcile` snaps after each hit. Idea: a kinematic body per remote car, moved to its extrapolated pose each frame. Issue: ChaDonSom/game-loop#13. Found in `notes/plans/issue-12-flip-multiplayer-portrait.md` (M8).
+- **Remote cars in the client physics world.** Done for ChaDonSom/game-loop#13: each remote car is a dynamic proxy (no gravity, no wheels) in `vue-client/src/physics/remoteCar.ts`. It follows the server state, moved ahead to the local car's time, so the local car can hit it and push it. Found in `notes/plans/issue-12-flip-multiplayer-portrait.md` (M8).

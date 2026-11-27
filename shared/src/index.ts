@@ -4,6 +4,7 @@ export { default as initGround } from "./rapier/ground.js"
 export { default as initWalls } from "./rapier/walls.js"
 export {
   default as initChassis,
+  chassisColliderDesc,
   spawnPose,
   resetChassisToSpawn,
   isSpawnClear,
