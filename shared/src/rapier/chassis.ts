@@ -31,6 +31,15 @@ export function spawnPose(spawnIndex: number) {
   }
 }
 
+/**
+ * The chassis box. One source for every car body: the server cars, the local car, and the client's remote-car proxies
+ * (`vue-client/src/physics/remoteCar.ts`). Same size and density, so a hit trades the same momentum on both sides.
+ */
+export function chassisColliderDesc() {
+  // Density 2 gives the soapbox momentum.
+  return RAPIER.ColliderDesc.cuboid(chassisWidth / 2, chassisHeight / 2, chassisLength / 2).setDensity(2.0)
+}
+
 export default function initChassis(world: RAPIER.World, spawnIndex = 0) {
   const pose = spawnPose(spawnIndex)
   const chassisBodyDesc = RAPIER.RigidBodyDesc.dynamic().setTranslation(
@@ -39,14 +48,13 @@ export default function initChassis(world: RAPIER.World, spawnIndex = 0) {
     pose.translation.z,
   )
   chassisBodyDesc.setRotation(pose.rotation)
+  // No sleep: while a body sleeps, the wheel controller still adds suspension impulses to its velocity. The car stays
+  // still but reports a growing false velocity (~2.8 m/s up at rest), which `reconcile` and remote-car proxies then
+  // extrapolate. It also launches the car when it wakes.
+  chassisBodyDesc.setCanSleep(false)
   const chassisBody = world.createRigidBody(chassisBodyDesc)
 
-  const chassisColliderDesc = RAPIER.ColliderDesc.cuboid(
-    chassisWidth / 2,
-    chassisHeight / 2,
-    chassisLength / 2,
-  ).setDensity(2.0) // Increase density to give the soapbox momentum
-  world.createCollider(chassisColliderDesc, chassisBody)
+  world.createCollider(chassisColliderDesc(), chassisBody)
 
   return {
     body: chassisBody,
@@ -136,8 +144,8 @@ export function tryFlip(world: RAPIER.World, body: RAPIER.RigidBody, vehicle: RA
 /**
  * Puts the car upright, with the same heading, `FLIP_LIFT` higher, at rest. If that spot is blocked, tries higher. If
  * every spot is blocked, does nothing and returns false. Use `tryFlip`, which also checks the car is stuck. (The
- * client world has no remote cars, so near another car the client and server can pick different heights. `reconcile`
- * then corrects it.)
+ * client's remote cars are proxies that follow the server with some error, so near another car the client and server
+ * can still pick different heights. `reconcile` then corrects it.)
  */
 export function flipUpright(world: RAPIER.World, body: RAPIER.RigidBody) {
   const { forward, right } = chassisAxes(body.rotation())

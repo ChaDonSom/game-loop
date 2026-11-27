@@ -46,6 +46,7 @@ import { lastSentSeq, queueControls, stateLagSeconds } from "@/network"
 import { authoritativePlayers, myId, mySpawnIndex, worldMismatch } from "@/store/network"
 import reconcile from "@/physics/reconcile"
 import RenderSmoothing from "@/physics/renderSmoothing"
+import RemoteCar, { STALE_SECONDS } from "@/physics/remoteCar"
 import { perfEnabled, recordFrame, setPerfExtra } from "@/debug/perfHud"
 import { initQuality, qualitySetting } from "@/three/quality"
 import { watch } from "vue"
@@ -87,7 +88,11 @@ async function init() {
   const wheelConfig = initWheels(chassis, vehicle)
   const { radius: wheelRadius } = wheelConfig
   const wheelMeshes = initWheelMeshes(scene, wheelRadius)
-  const remoteChassisMeshes = new Map<string, { mesh: THREE.Mesh; wheels: THREE.Mesh[] }>()
+  /** Each remote car: a physics proxy the local car can hit (issue 13), and the meshes drawn at its pose. */
+  const remoteCars = new Map<
+    string,
+    { car: RemoteCar; smoothing: RenderSmoothing; mesh: THREE.Mesh; wheels: THREE.Mesh[] }
+  >()
   const remoteChassisMaterial = new THREE.MeshStandardMaterial({ color: 0x2768c7 })
   const steeringAxis = new THREE.Vector3(0, 1, 0)
 
@@ -103,6 +108,13 @@ async function init() {
   /** Session (`myId`) whose spawn the local car was last reset to. Each `welcome` gives a new id. */
   let spawnedForId: string | null = null
   const smoothing = new RenderSmoothing(chassis.body)
+  /**
+   * How far the local car runs ahead of server states, in seconds, measured when the last local state arrived. A
+   * remote car's state is as old as the local car's state of the same tick, so it is moved forward by this plus its
+   * time since arrival.
+   */
+  let predictionLead = 0
+  let predictionLeadSeq = -1
 
   /**
    * After the local car jumps (respawn, flip): reset the wheel and the render history, and skip server states at or
@@ -112,6 +124,41 @@ async function init() {
     resetWheel()
     smoothing.reset()
     lastReconciledAck = ackFloor
+  }
+
+  /** Adds a proxy and meshes for each new remote car, and removes those of cars that left. */
+  function syncRemoteCars() {
+    for (const [id, snapshot] of Object.entries(authoritativePlayers.value)) {
+      if (id === myId.value || remoteCars.has(id)) continue
+
+      const mesh = new THREE.Mesh(chassisMesh.geometry, remoteChassisMaterial)
+      mesh.castShadow = true
+      scene.add(mesh)
+
+      const wheels: THREE.Mesh[] = []
+      for (const [index, offset] of wheelConfig.offset.entries()) {
+        const localWheelMesh = wheelMeshes[index]
+        if (!localWheelMesh) continue
+
+        const remoteWheelMesh = localWheelMesh.clone()
+        remoteWheelMesh.position.set(offset.x, offset.y - wheelConfig.suspensionRestLength, offset.z)
+        remoteWheelMesh.quaternion.identity()
+        mesh.add(remoteWheelMesh)
+        wheels.push(remoteWheelMesh)
+      }
+
+      const car = new RemoteCar(world)
+      // Place it now (the first `follow` snaps), so the smoothing starts at the car and not at the origin.
+      car.follow(snapshot, predictionLead + (performance.now() - snapshot.time) / 1000, fixedDt)
+      remoteCars.set(id, { car, smoothing: new RenderSmoothing(car.body), mesh, wheels })
+    }
+
+    for (const [id, remote] of remoteCars) {
+      if (id !== myId.value && authoritativePlayers.value[id]) continue
+      scene.remove(remote.mesh)
+      remote.car.remove(world)
+      remoteCars.delete(id)
+    }
   }
 
   function animate(currentTime: number) {
@@ -133,6 +180,8 @@ async function init() {
       afterTeleport(0)
       spawnedForId = myId.value
     }
+
+    syncRemoteCars()
 
     const physicsStart = performance.now()
     while (accumulator >= fixedDt) {
@@ -157,14 +206,33 @@ async function init() {
 
       applySurfaceGrip(vehicle, terrain, DEFAULT_WORLD.surfaceGrip)
       vehicle.updateVehicle(fixedDt)
+      // This step ends at local time `jsStart - (accumulator - fixedDt)`. Move remote cars to that time.
+      const stepEndBehindNow = accumulator - fixedDt
+      for (const [id, remote] of remoteCars) {
+        const snapshot = authoritativePlayers.value[id]
+        if (!snapshot) continue
+        const age = (jsStart - snapshot.time) / 1000
+        const fresh = age < STALE_SECONDS
+        remote.car.setActive(fresh)
+        remote.mesh.visible = fresh
+        if (!fresh) continue
+        if (remote.car.follow(snapshot, predictionLead + age - stepEndBehindNow, fixedDt)) remote.smoothing.reset()
+        remote.smoothing.beforeStep()
+      }
       smoothing.beforeStep()
       world.step()
       smoothing.afterStep()
+      for (const remote of remoteCars.values()) remote.smoothing.afterStep()
       accumulator -= fixedDt
     }
     const physicsMs = performance.now() - physicsStart
 
     const localSnapshot = myId.value ? authoritativePlayers.value[myId.value] : undefined
+    if (localSnapshot && localSnapshot.seq !== predictionLeadSeq) {
+      const lag = stateLagSeconds(localSnapshot.ack, localSnapshot.ackAgeMs)
+      if (lag !== null) predictionLead = lag - (performance.now() - localSnapshot.time) / 1000
+      predictionLeadSeq = localSnapshot.seq
+    }
     if (localSnapshot && localSnapshot.ack > lastReconciledAck) {
       const lag = stateLagSeconds(localSnapshot.ack, localSnapshot.ackAgeMs) ?? 0
       smoothing.beginCorrection()
@@ -173,52 +241,10 @@ async function init() {
       lastReconciledAck = localSnapshot.ack
     }
 
-    const activeRemoteIds = new Set<string>()
-    for (const [id, snapshot] of Object.entries(authoritativePlayers.value)) {
-      if (id === myId.value) continue
-      activeRemoteIds.add(id)
-
-      let remoteVehicle = remoteChassisMeshes.get(id)
-      if (!remoteVehicle) {
-        const remoteMesh = new THREE.Mesh(chassisMesh.geometry, remoteChassisMaterial)
-        remoteMesh.castShadow = true
-        remoteMesh.position.set(snapshot.position.x, snapshot.position.y, snapshot.position.z)
-        remoteMesh.quaternion.set(snapshot.rotation.x, snapshot.rotation.y, snapshot.rotation.z, snapshot.rotation.w)
-        scene.add(remoteMesh)
-
-        const remoteWheelMeshes: THREE.Mesh[] = []
-        for (const [index, offset] of wheelConfig.offset.entries()) {
-          const localWheelMesh = wheelMeshes[index]
-          if (!localWheelMesh) continue
-
-          const remoteWheelMesh = localWheelMesh.clone()
-          remoteWheelMesh.position.set(offset.x, offset.y - wheelConfig.suspensionRestLength, offset.z)
-          remoteWheelMesh.quaternion.identity()
-          remoteMesh.add(remoteWheelMesh)
-          remoteWheelMeshes.push(remoteWheelMesh)
-        }
-
-        remoteVehicle = { mesh: remoteMesh, wheels: remoteWheelMeshes }
-        remoteChassisMeshes.set(id, remoteVehicle)
-      }
-
-      remoteVehicle.mesh.position.lerp(
-        new THREE.Vector3(snapshot.position.x, snapshot.position.y, snapshot.position.z),
-        0.25,
-      )
-      remoteVehicle.mesh.quaternion.slerp(
-        new THREE.Quaternion(snapshot.rotation.x, snapshot.rotation.y, snapshot.rotation.z, snapshot.rotation.w),
-        0.25,
-      )
-      for (const wheelIndex of [0, 1]) {
-        remoteVehicle.wheels[wheelIndex]?.quaternion.setFromAxisAngle(steeringAxis, snapshot.steering)
-      }
-    }
-
-    for (const [id, remoteVehicle] of remoteChassisMeshes) {
-      if (activeRemoteIds.has(id)) continue
-      scene.remove(remoteVehicle.mesh)
-      remoteChassisMeshes.delete(id)
+    for (const [id, remote] of remoteCars) {
+      remote.smoothing.sample(accumulator / fixedDt, frameDt, remote.mesh.position, remote.mesh.quaternion)
+      const steer = authoritativePlayers.value[id]?.steering ?? 0
+      for (const wheelIndex of [0, 1]) remote.wheels[wheelIndex]?.quaternion.setFromAxisAngle(steeringAxis, steer)
     }
 
     // Draw a blend of the last two physics steps, plus the fading correction offset. See RenderSmoothing.
