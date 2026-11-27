@@ -264,7 +264,9 @@ async function startNetLoop(transport: WebTransport) {
   void loop()
 }
 
+/** Adds one `pos` snapshot, only while the roster has the player: a late packet must not revive a car. */
 function upsertRemotePlayer(msg: Pick<PositionBroadcastMessage, "id" | "seq" | "x" | "y">) {
+  if (!roster.has(msg.id)) return
   const { seq, x, y } = msg
   const prevSeq = lastPlayerSeq.get(msg.id) ?? -1
   if (seq <= prevSeq) return // drop duplicate or out-of-order player update
