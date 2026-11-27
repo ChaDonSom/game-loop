@@ -15,7 +15,7 @@ export {
 export { default as initWheels } from "./rapier/wheels.js"
 export type { Pad } from "./controls/types.js"
 export type { Keys } from "./controls/types.js"
-export { clamp } from "./math.js"
+export { chassisAxes, clamp, dot } from "./math.js"
 export { default as handleSteeringAndDrive, resetDriveState, MAX_STEERING } from "./controls/handleSteeringAndDrive.js"
 export * from "./protocol.js"
 export { frontAxleSlip, type FrontAxleSlip } from "./vehicle/slip.js"
