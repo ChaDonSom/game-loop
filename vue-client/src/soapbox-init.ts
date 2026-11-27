@@ -40,7 +40,7 @@ import {
 } from "@/input/flip"
 import keys from "@/input/keys"
 import { frontRolling, getTouchPad, resetWheel, touchVisible, updateWheel } from "@/input/touch"
-import { moveWheelMeshesToWorldCoordinates } from "@/three/wheels"
+import { moveWheelMeshesToWorldCoordinates, rollRate, setWheelLocalRotation } from "@/three/wheels"
 import updateCamera from "@/three/camera"
 import { lastSentSeq, queueControls, stateLagSeconds } from "@/network"
 import { authoritativePlayers, myId, mySpawnIndex, worldMismatch } from "@/store/network"
@@ -91,10 +91,9 @@ async function init() {
   /** Each remote car: a physics proxy the local car can hit (issue 13), and the meshes drawn at its pose. */
   const remoteCars = new Map<
     string,
-    { car: RemoteCar; smoothing: RenderSmoothing; mesh: THREE.Mesh; wheels: THREE.Mesh[] }
+    { car: RemoteCar; smoothing: RenderSmoothing; mesh: THREE.Mesh; wheels: THREE.Mesh[]; spin: number }
   >()
   const remoteChassisMaterial = new THREE.MeshStandardMaterial({ color: 0x2768c7 })
-  const steeringAxis = new THREE.Vector3(0, 1, 0)
 
   // ----------------------------------------------------
   // #region 2. ANIMATION LOOP
@@ -150,7 +149,7 @@ async function init() {
       const car = new RemoteCar(world)
       // Place it now (the first `follow` snaps), so the smoothing starts at the car and not at the origin.
       car.follow(snapshot, predictionLead + (performance.now() - snapshot.time) / 1000, fixedDt)
-      remoteCars.set(id, { car, smoothing: new RenderSmoothing(car.body), mesh, wheels })
+      remoteCars.set(id, { car, smoothing: new RenderSmoothing(car.body), mesh, wheels, spin: 0 })
     }
 
     for (const [id, remote] of remoteCars) {
@@ -244,7 +243,12 @@ async function init() {
     for (const [id, remote] of remoteCars) {
       remote.smoothing.sample(accumulator / fixedDt, frameDt, remote.mesh.position, remote.mesh.quaternion)
       const steer = authoritativePlayers.value[id]?.steering ?? 0
-      for (const wheelIndex of [0, 1]) remote.wheels[wheelIndex]?.quaternion.setFromAxisAngle(steeringAxis, steer)
+      // No vehicle controller here: roll the wheels from the proxy's speed, kept in [-π, π] so it never loses precision.
+      remote.spin += rollRate(remote.car.body.linvel(), remote.mesh.quaternion, wheelRadius) * frameDt
+      remote.spin = Math.atan2(Math.sin(remote.spin), Math.cos(remote.spin))
+      for (const [wheelIndex, wheel] of remote.wheels.entries()) {
+        setWheelLocalRotation(wheel.quaternion, wheelIndex < 2 ? steer : 0, remote.spin)
+      }
     }
 
     // Draw a blend of the last two physics steps, plus the fading correction offset. See RenderSmoothing.
