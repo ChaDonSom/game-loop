@@ -26,10 +26,10 @@ const MARKER_COLOR = "#f2c230"
 const TREAD_BLOCKS = 18
 // YOUR CHOICE: groove color on the tread. Near RUBBER = subtle; lighter = the tread reads from the chase camera, and
 // strobes more above the speed in TREAD_BLOCKS.
-const TREAD_GROOVE = "#262626"
+const TREAD_GROOVE = "#202020"
 // YOUR CHOICE: bright bands across the tread, in MARKER_COLOR, in line with the sidewall marker. This is the speed cue
 // from behind. N bands read true up to about 125/N mph at 60 fps (1 band: ~125 mph, 3 bands: ~42 mph). 0 = none.
-const TREAD_MARKS = 0
+const TREAD_MARKS = 1
 // YOUR CHOICE: drawn tire width, as a multiple of the physics width (VEHICLE_DIMENSIONS.wheel.width, 0.15 m). Drawing
 // only: the shared width also sizes the terrain bumps, so do not change it for looks.
 const DRAWN_WIDTH_SCALE = 1
