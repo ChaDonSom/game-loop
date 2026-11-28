@@ -32,7 +32,7 @@ const TREAD_GROOVE = "#202020"
 const TREAD_MARKS = 1
 // YOUR CHOICE: drawn tire width, as a multiple of the physics width (VEHICLE_DIMENSIONS.wheel.width, 0.15 m). Drawing
 // only: the shared width also sizes the terrain bumps, so do not change it for looks.
-const DRAWN_WIDTH_SCALE = 1
+const DRAWN_WIDTH_SCALE = 2
 const RUBBER = "#151515"
 const RIM = "#b9bec6"
 
