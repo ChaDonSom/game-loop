@@ -10,15 +10,20 @@ export default function initWheels(
   chassis: { body: RAPIER.RigidBody; width: number; height: number; length: number },
   vehicle: RAPIER.DynamicRayCastVehicleController,
 ) {
-  const { radius: wheelRadius, width: wheelWidth, suspensionRestLength } = VEHICLE_DIMENSIONS.wheel
+  const { radius: wheelRadius, width: wheelWidth, suspensionRestLength, rayOutward } = VEHICLE_DIMENSIONS.wheel
 
-  // Relative attachment points for 4 wheels on the chassis [X, Y, Z]
-  const wheelOffsets = [
-    new RAPIER.Vector3(chassis.width / 2, -chassis.height / 6, -axleOffsetZ(chassis.length)), // Front-Right
-    new RAPIER.Vector3(-chassis.width / 2, -chassis.height / 6, -axleOffsetZ(chassis.length)), // Front-Left
-    new RAPIER.Vector3(chassis.width / 2, -chassis.height / 6, axleOffsetZ(chassis.length)), // Rear-Right
-    new RAPIER.Vector3(-chassis.width / 2, -chassis.height / 6, axleOffsetZ(chassis.length)), // Rear-Left
+  // Hubs: where each tire is centered and drawn. Order: front-right, front-left, rear-right, rear-left.
+  const hubX = chassis.width / 2
+  const hubY = -chassis.height / 6
+  const hubOffsets = [
+    { x: hubX, y: hubY, z: -axleOffsetZ(chassis.length) },
+    { x: -hubX, y: hubY, z: -axleOffsetZ(chassis.length) },
+    { x: hubX, y: hubY, z: axleOffsetZ(chassis.length) },
+    { x: -hubX, y: hubY, z: axleOffsetZ(chassis.length) },
   ]
+  // Rays: same as the hubs, moved out across the tire (see `rayOutward`).
+  const rayShift = (rayOutward * wheelWidth) / 2
+  const wheelOffsets = hubOffsets.map((hub) => new RAPIER.Vector3(hub.x + Math.sign(hub.x) * rayShift, hub.y, hub.z))
 
   wheelOffsets.forEach((offset, i) => {
     // Add wheel to raycast vehicle controller
@@ -40,6 +45,9 @@ export default function initWheels(
     radius: wheelRadius,
     width: wheelWidth,
     suspensionRestLength,
+    /** Ray attachment points (chassis frame). */
     offset: wheelOffsets,
+    /** Tire centers (chassis frame). Draw the tires here, not at the rays. */
+    hubOffset: hubOffsets,
   }
 }
