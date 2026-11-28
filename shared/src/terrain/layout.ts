@@ -16,8 +16,9 @@ const car = VEHICLE_DIMENSIONS.chassis
 // ---------------------------------------------------------------------------
 // YOUR CHOICE: bump size, as multiples of the car (tire.width, tire.radius, car.width ...).
 // Length is the footprint along the road, width is across it, height is how far the top sticks up.
-const bumpLength = 4.33 * tire.width
-const bumpHeight = 1.25 * tire.width
+// Same sizes as before the tire width doubled (0.15 m to 0.30 m): 4.33 and 1.25 tire widths of 0.15 m = half a radius.
+const bumpLength = 2.165 * tire.radius
+const bumpHeight = 0.625 * tire.radius
 const bumpWidth = 4 * car.width
 // YOUR CHOICE: how many, how far apart, and where the row starts.
 const bumpCount = 10

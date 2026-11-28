@@ -135,7 +135,7 @@ async function init() {
       scene.add(mesh)
 
       const wheels: THREE.Mesh[] = []
-      for (const [index, offset] of wheelConfig.offset.entries()) {
+      for (const [index, offset] of wheelConfig.hubOffset.entries()) {
         const localWheelMesh = wheelMeshes[index]
         if (!localWheelMesh) continue
 
@@ -257,7 +257,7 @@ async function init() {
     updateCamera(chassisMesh, camera, frameDt)
     followWithSun(sun, chassisMesh.position)
 
-    moveWheelMeshesToWorldCoordinates(vehicle, wheelMeshes, chassisMesh, steering)
+    moveWheelMeshesToWorldCoordinates(vehicle, wheelMeshes, chassisMesh, steering, wheelConfig.hubOffset)
 
     const renderStart = performance.now()
     renderer.render(scene, camera)

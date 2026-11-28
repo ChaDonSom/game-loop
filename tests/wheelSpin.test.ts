@@ -68,3 +68,18 @@ test("remote roll rate has Rapier's sign: positive forward, negative in reverse"
   const turned = { x: 0, y: 1, z: 0, w: 0 }
   assert.ok(rollRate({ x: 0, y: 0, z: 6 }, turned, radius) > 0)
 })
+
+test("rays sit out across the tire by rayOutward; tires are drawn at the hubs", async () => {
+  const { world } = await initRapier()
+  const chassis = initChassis(world)
+  const vehicle = world.createVehicleController(chassis.body)
+  const config = initWheels(chassis, vehicle)
+  const { width, rayOutward } = VEHICLE_DIMENSIONS.wheel
+  for (const [i, hub] of config.hubOffset.entries()) {
+    assert.equal(Math.abs(hub.x), chassis.width / 2)
+    const ray = vehicle.wheelChassisConnectionPointCs(i)!
+    // Same side as the hub, further out by the fraction of half the tire width.
+    assert.ok(Math.abs(ray.x - (hub.x + Math.sign(hub.x) * rayOutward * (width / 2))) < 1e-6, `wheel ${i}: ray x ${ray.x}`)
+    assert.ok(Math.abs(ray.z - hub.z) < 1e-6)
+  }
+})

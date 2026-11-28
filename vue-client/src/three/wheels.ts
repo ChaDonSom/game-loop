@@ -30,9 +30,9 @@ const TREAD_GROOVE = "#505050"
 // YOUR CHOICE: bright bands across the tread, in MARKER_COLOR, in line with the sidewall marker. This is the speed cue
 // from behind. N bands read true up to about 125/N mph at 60 fps (1 band: ~125 mph, 3 bands: ~42 mph). 0 = none.
 const TREAD_MARKS = 1
-// YOUR CHOICE: drawn tire width, as a multiple of the physics width (VEHICLE_DIMENSIONS.wheel.width, 0.15 m). Drawing
-// only: the shared width also sizes the terrain bumps, so do not change it for looks.
-const DRAWN_WIDTH_SCALE = 2
+// YOUR CHOICE: drawn tire width, as a multiple of the shared width (VEHICLE_DIMENSIONS.wheel.width, 0.30 m). Drawing
+// only; the shared width sets where the wheel rays sit (see `rayOutward`).
+const DRAWN_WIDTH_SCALE = 1
 const RUBBER = "#151515"
 const RIM = "#b9bec6"
 
@@ -192,23 +192,24 @@ const tempLocal = new THREE.Quaternion()
 /**
  * Moves the wheel meshes to their correct world coordinates based on the vehicle's current state and the drawn
  * chassis pose. Use the mesh pose, not the physics body: the mesh is the smoothed pose, and the wheels must match it.
+ * Tires are drawn at their hubs (`hubOffsets`); the rays may sit further out (see `rayOutward`).
  */
 export function moveWheelMeshesToWorldCoordinates(
   vehicle: any,
   wheelMeshes: THREE.Mesh[],
   chassisMesh: THREE.Mesh,
   steering: number,
+  hubOffsets: { x: number; y: number; z: number }[],
 ) {
   const tempChassisQuat = chassisMesh.quaternion
   for (let i = 0; i < vehicle.numWheels(); i++) {
     const wheelMesh = wheelMeshes[i]
-    const connectionPoint = vehicle.wheelChassisConnectionPointCs(i)
+    const hub = hubOffsets[i]
     const suspensionLength = vehicle.wheelSuspensionLength(i)
-    if (!wheelMesh || suspensionLength === null || connectionPoint === null) continue
+    if (!wheelMesh || !hub || suspensionLength === null) continue
 
-    // Start at the suspension attachment point and move
-    // down along the suspension direction.
-    tempWheelPos.set(connectionPoint.x, connectionPoint.y - suspensionLength, connectionPoint.z)
+    // Start at the hub and move down along the suspension direction.
+    tempWheelPos.set(hub.x, hub.y - suspensionLength, hub.z)
 
     // Convert chassis-local position into world space.
     tempWheelPos.applyQuaternion(tempChassisQuat)
